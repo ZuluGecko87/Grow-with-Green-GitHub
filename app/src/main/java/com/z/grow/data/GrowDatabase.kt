@@ -14,10 +14,11 @@ import androidx.room.RoomDatabase
         TaskLog::class,
         JournalEntry::class,
         JournalPhoto::class,
+        EarnedAchievement::class,
     ],
     version = GrowDatabase.VERSION,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5)],
 )
 abstract class GrowDatabase : RoomDatabase() {
     abstract fun dao(): GrowDao
@@ -28,7 +29,7 @@ abstract class GrowDatabase : RoomDatabase() {
     }
 
     companion object {
-        const val VERSION = 4
+        const val VERSION = 5
         const val NAME = "grow.db"
 
         @Volatile private var instance: GrowDatabase? = null

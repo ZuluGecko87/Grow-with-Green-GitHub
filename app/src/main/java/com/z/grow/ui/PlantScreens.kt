@@ -40,6 +40,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import com.z.grow.data.DeathReason
+import com.z.grow.data.EarnedAchievement
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -119,6 +120,7 @@ fun PlantsScreen(data: GrowData, vm: GrowViewModel, onOpen: (Long) -> Unit) {
                     plant = plant,
                     environment = data.environment(plant.environmentId),
                     lastPh = data.logsFor(plant.id).firstNotNullOfOrNull { it.ph },
+                    badges = data.achievementsFor(plant.id),
                     onStageChange = { stage ->
                         if (stage.needsDetails) pendingStage = plant to stage
                         else vm.savePlant(plant.movedTo(stage), original = plant)
@@ -146,6 +148,7 @@ private fun PlantCard(
     plant: Plant,
     environment: GrowEnvironment?,
     lastPh: Double?,
+    badges: List<EarnedAchievement>,
     onStageChange: (GrowStage) -> Unit,
     onClick: () -> Unit,
 ) {
@@ -168,6 +171,7 @@ private fun PlantCard(
                 StageButton(plant.stage, onStageChange)
                 StageStatus(plant, environment, today)
                 lastPh?.let { Text("Last pH %.1f".format(it), style = MaterialTheme.typography.bodySmall, color = WaterColor) }
+                BadgeRow(badges, Modifier.padding(top = 4.dp))
             }
         }
     }

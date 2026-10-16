@@ -4,6 +4,8 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.z.grow.data.Achievement
+import com.z.grow.data.Achievements
 import com.z.grow.data.AppSettings
 import com.z.grow.data.Backup
 import com.z.grow.data.DeathReason
@@ -23,7 +25,10 @@ import com.z.grow.data.data
 import com.z.grow.work.AutoBackupWorker
 import com.z.grow.work.ReminderWorker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,6 +46,29 @@ class GrowViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private val _settings = MutableStateFlow(settingsStore.load())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
+
+    private val _unlocked = MutableSharedFlow<Achievement>(extraBufferCapacity = 16)
+
+    /** Fires once for each achievement as it's unlocked. */
+    val unlocked: SharedFlow<Achievement> = _unlocked.asSharedFlow()
+
+    init {
+        // Re-check achievements whenever anything changes; awarding is idempotent.
+        viewModelScope.launch {
+            data.collect { snapshot ->
+                val today = LocalDate.now().toEpochDay()
+                Achievements.newlyEarned(snapshot, today).forEach { (achievement, earned) ->
+                    val entry = JournalEntry(
+                        epochDay = today,
+                        text = "Achievement unlocked: ${achievement.emoji} ${achievement.title} — ${achievement.description}",
+                        plantId = earned.plantId,
+                        kind = EntryKind.ACHIEVEMENT,
+                    )
+                    if (dao.awardAchievement(earned, entry)) _unlocked.emit(achievement)
+                }
+            }
+        }
+    }
 
     suspend fun environment(id: Long) = dao.environment(id)
 

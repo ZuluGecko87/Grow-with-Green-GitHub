@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -69,6 +70,7 @@ fun CalendarScreen(
     onOpenJournal: (Long) -> Unit,
     onNewJournal: (epochDay: Long) -> Unit,
     onSettings: () -> Unit,
+    onAchievements: () -> Unit,
 ) {
     var month by rememberSaveable { mutableStateOf(YearMonth.now()) }
     var selected by rememberSaveable { mutableStateOf(LocalDate.now()) }
@@ -79,6 +81,7 @@ fun CalendarScreen(
     Scaffold(
         topBar = {
             GrowTopBar("Grow with Green") {
+                IconButton(onClick = onAchievements) { Icon(Icons.Filled.Star, "Achievements") }
                 IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Settings") }
             }
         },

@@ -174,6 +174,7 @@ private val EntryKind.badge: String?
         EntryKind.PLANT_ADDED -> "🌱 Plant added"
         EntryKind.PROFILE_PHOTO -> "📷 Profile photo"
         EntryKind.STAGE_CHANGE -> "🌿 Stage change"
+        EntryKind.ACHIEVEMENT -> "🏆 Achievement"
     }
 
 @Composable

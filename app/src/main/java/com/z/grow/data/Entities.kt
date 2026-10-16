@@ -91,6 +91,7 @@ enum class EntryKind(val label: String) {
     PLANT_ADDED("Plant added"),
     PROFILE_PHOTO("Profile photo"),
     STAGE_CHANGE("Stage change"),
+    ACHIEVEMENT("Achievement"),
 }
 
 enum class TaskKind(val label: String) {

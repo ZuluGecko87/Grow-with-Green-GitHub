@@ -127,12 +127,27 @@ abstract class GrowDao {
 
     @Delete
     abstract suspend fun deleteJournalEntry(entry: JournalEntry)
+
+    @Query("SELECT * FROM achievements ORDER BY earnedEpochDay, key")
+    abstract fun achievements(): Flow<List<EarnedAchievement>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    protected abstract suspend fun insertAchievement(achievement: EarnedAchievement): Long
+
+    /** Stores the achievement and its journal entry; false if it was already earned. */
+    @Transaction
+    open suspend fun awardAchievement(achievement: EarnedAchievement, entry: JournalEntry): Boolean {
+        if (insertAchievement(achievement) == -1L) return false
+        insertJournalEntry(entry)
+        return true
+    }
 }
 
 /** Live snapshot of the whole database. */
 fun GrowDao.data(): Flow<GrowData> = combine(
     combine(environments(), plants(), nutrients(), ::Triple),
     combine(taskLogs(), journal(), journalPhotos(), ::Triple),
-) { (environments, plants, nutrients), (logs, journal, photos) ->
-    GrowData(environments, plants, nutrients, logs, journal, photos)
+    achievements(),
+) { (environments, plants, nutrients), (logs, journal, photos), achievements ->
+    GrowData(environments, plants, nutrients, logs, journal, photos, achievements)
 }

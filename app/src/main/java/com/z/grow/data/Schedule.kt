@@ -84,6 +84,7 @@ class GrowData(
     val logs: List<TaskLog>,
     val journal: List<JournalEntry>,
     photos: List<JournalPhoto>,
+    val achievements: List<EarnedAchievement>,
 ) {
     private val environmentsById = environments.associateBy { it.id }
     private val plantsById = plants.associateBy { it.id }
@@ -92,6 +93,13 @@ class GrowData(
     private val logsByDay = logs.groupBy { it.epochDay }
     private val journalByDay = journal.groupBy { it.epochDay }
     private val photosByEntry = photos.groupBy { it.entryId }
+    private val achievementsByPlant = achievements.groupBy { it.plantId }
+
+    val photoCount: Int = photos.size
+
+    fun photoCountFor(plantId: Long): Int = journal.filter { it.plantId == plantId }.sumOf { photosFor(it.id).size }
+
+    fun achievementsFor(plantId: Long): List<EarnedAchievement> = achievementsByPlant[plantId].orEmpty()
 
     fun environment(id: Long?): GrowEnvironment? = id?.let { environmentsById[it] }
 
@@ -147,6 +155,6 @@ class GrowData(
     )
 
     companion object {
-        val EMPTY = GrowData(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
+        val EMPTY = GrowData(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
     }
 }

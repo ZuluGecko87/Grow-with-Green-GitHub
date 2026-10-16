@@ -11,7 +11,11 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -42,9 +46,14 @@ fun GrowApp(vm: GrowViewModel = viewModel()) {
     val nav = rememberNavController()
     val data by vm.data.collectAsStateWithLifecycle()
     val route = nav.currentBackStackEntryAsState().value?.destination?.route
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(vm) {
+        vm.unlocked.collect { snackbar.showSnackbar("🏆 Achievement unlocked: ${it.emoji} ${it.title}") }
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
+        snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             if (Tab.entries.any { it.route == route }) {
                 NavigationBar {
@@ -83,6 +92,7 @@ fun GrowApp(vm: GrowViewModel = viewModel()) {
                     onOpenJournal = { nav.open("journal/$it") },
                     onNewJournal = { day -> nav.open("journal/0?day=$day") },
                     onSettings = { nav.open("settings") },
+                    onAchievements = { nav.open("achievements") },
                 )
             }
             composable(Tab.PLANTS.route) {
@@ -131,6 +141,9 @@ fun GrowApp(vm: GrowViewModel = viewModel()) {
                     vm = vm,
                     onDone = { nav.popBackStack() },
                 )
+            }
+            composable("achievements") {
+                AchievementsScreen(data, onBack = { nav.popBackStack() })
             }
             composable("settings") {
                 SettingsScreen(vm, onBack = { nav.popBackStack() })
