@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.z.grow.data.Catalog
 import com.z.grow.data.Genetics
@@ -66,7 +67,6 @@ import com.z.grow.data.PlantSource
 import com.z.grow.data.PlantType
 import com.z.grow.data.TaskKind
 import com.z.grow.data.TaskLog
-import com.z.grow.data.nextDay
 import java.time.LocalDate
 
 @Composable
@@ -121,6 +121,7 @@ fun PlantsScreen(data: GrowData, vm: GrowViewModel, onOpen: (Long) -> Unit) {
                     environment = data.environment(plant.environmentId),
                     lastPh = data.logsFor(plant.id).firstNotNullOfOrNull { it.ph },
                     badges = data.achievementsFor(plant.id),
+                    data = data,
                     onStageChange = { stage ->
                         if (stage.needsDetails) pendingStage = plant to stage
                         else vm.savePlant(plant.movedTo(stage), original = plant)
@@ -149,6 +150,7 @@ private fun PlantCard(
     environment: GrowEnvironment?,
     lastPh: Double?,
     badges: List<EarnedAchievement>,
+    data: GrowData,
     onStageChange: (GrowStage) -> Unit,
     onClick: () -> Unit,
 ) {
@@ -169,7 +171,7 @@ private fun PlantCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 StageButton(plant.stage, onStageChange)
-                StageStatus(plant, environment, today)
+                StageStatus(plant, environment, data, today)
                 lastPh?.let { Text("Last pH %.1f".format(it), style = MaterialTheme.typography.bodySmall, color = WaterColor) }
                 BadgeRow(badges, Modifier.padding(top = 4.dp))
             }
@@ -179,7 +181,7 @@ private fun PlantCard(
 
 /** Stage-specific progress: grow day and next tasks, drying/curing countdown, or archive details. */
 @Composable
-private fun StageStatus(plant: Plant, environment: GrowEnvironment?, today: Long) {
+private fun StageStatus(plant: Plant, environment: GrowEnvironment?, data: GrowData, today: Long) {
     val small = MaterialTheme.typography.bodySmall
     val accent = MaterialTheme.colorScheme.primary
     when (plant.stage) {
@@ -215,9 +217,21 @@ private fun StageStatus(plant: Plant, environment: GrowEnvironment?, today: Long
             val day = today - plant.startEpochDay + 1
             val dayLabel = if (day >= 1) "Day $day" else "Starts ${formatDay(plant.startEpochDay)}"
             Text("$dayLabel · ${environment?.name ?: "No environment"}", style = small, color = accent)
+            val projection = data.projection(plant)
+            val overdue = listOfNotNull(projection.next(TaskKind.WATER), projection.next(TaskKind.FEED))
+                .firstOrNull { (day, due) -> day == today && due.overdueDays > 0 }
+            if (overdue != null) {
+                val (_, due) = overdue
+                Text(
+                    "${due.kind.label} overdue by ${due.overdueDays} day${if (due.overdueDays == 1) "" else "s"}",
+                    style = small,
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
             val upcoming = listOfNotNull(
-                plant.nextDay(TaskKind.WATER, today)?.let { "Water ${formatDay(it)}" },
-                plant.nextDay(TaskKind.FEED, today)?.let { "Feed ${formatDay(it)}" },
+                projection.next(TaskKind.WATER)?.let { "Water ${dueLabel(it.first, today)}" },
+                projection.next(TaskKind.FEED)?.let { "Feed ${dueLabel(it.first, today)}" },
             ).joinToString(" · ")
             if (upcoming.isNotEmpty()) Text("Next: $upcoming", style = small)
         }
@@ -355,7 +369,7 @@ fun PlantEditScreen(
             DayStepper("Water", f.waterEveryDays, { form = f.copy(waterEveryDays = it) })
             DayStepper("Feed nutrients", f.feedEveryDays, { form = f.copy(feedEveryDays = it) })
             Text(
-                "Schedules count from the start date. On feed days the plant is watered with the environment's nutrient mix.",
+                "Each logged watering restarts the countdown, so watering early or late moves the schedule. Missed waterings show as overdue. On feed days the plant gets the environment's nutrient mix.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -480,4 +494,10 @@ private fun StageButton(stage: GrowStage, onChange: (GrowStage) -> Unit) {
             }
         }
     }
+}
+
+private fun dueLabel(day: Long, today: Long) = when (day - today) {
+    0L -> "today"
+    1L -> "tomorrow"
+    else -> formatDay(day)
 }

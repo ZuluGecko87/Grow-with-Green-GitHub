@@ -27,10 +27,11 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
         if (store.lastReminderDay == today.toEpochDay()) return Result.success()
 
         val agenda = GrowDatabase.get(applicationContext).dao().data().first().agenda(today)
-        val due = agenda.tasks.filter { it.scheduled && !it.done && it.plant.remindersEnabled }
+        val due = agenda.tasks.filter { !it.done && it.plant.remindersEnabled }
         val lines = due.map { task ->
             val mix = task.nutrients.joinToString(", ") { n -> listOf(n.name, n.dose).filter { it.isNotBlank() }.joinToString(" ") }
-            "${task.kind.label} ${task.plant.displayName}" + if (mix.isNotEmpty()) " — $mix" else ""
+            val late = if (task.overdueDays > 0) " (overdue ${task.overdueDays} day${if (task.overdueDays == 1) "" else "s"})" else ""
+            "${task.kind.label} ${task.plant.displayName}$late" + if (mix.isNotEmpty()) " — $mix" else ""
         } + agenda.lights.filter { it.isFlipDay }.map {
             "Switch ${it.environment.name} lights to ${cycleLabel(it.hoursOn)}"
         } + agenda.milestones.filter { it.plant.remindersEnabled }.map { it.text }

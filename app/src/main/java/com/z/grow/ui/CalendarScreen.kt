@@ -113,7 +113,7 @@ fun CalendarScreen(
                 )
             }
             if (agenda.tasks.isEmpty()) {
-                item { Text("No watering or feeding scheduled.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                item { Text(if (selected.isBefore(LocalDate.now())) "No waterings or feedings logged." else "No watering or feeding due.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             items(agenda.tasks, key = { "${it.plant.id}-${it.kind}" }) { task ->
                 TaskCard(
@@ -313,10 +313,18 @@ private fun TaskCard(task: PlantTask, onCheckedChange: (Boolean) -> Unit, onClic
             PlantAvatar(task.plant, size = 40, modifier = Modifier.padding(top = 4.dp, end = 12.dp))
             Column(Modifier.weight(1f).padding(top = 12.dp)) {
                 Text(
-                    "${task.kind.label} ${task.plant.displayName}" + if (task.scheduled) "" else " (extra)",
+                    "${task.kind.label} ${task.plant.displayName}",
                     style = MaterialTheme.typography.titleSmall,
                     textDecoration = if (task.done) TextDecoration.LineThrough else null,
                 )
+                if (task.overdueDays > 0) {
+                    Text(
+                        "Overdue by ${task.overdueDays} day${if (task.overdueDays == 1) "" else "s"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
                 val where = task.environment?.let { "${it.name} · ${it.medium.label}" } ?: "No environment"
                 Text(where, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (task.kind == TaskKind.FEED) {
