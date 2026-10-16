@@ -62,7 +62,7 @@ fun GrowApp() {
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("🌱 Grow") },
+                title = { Text("🌱 Grow with Green") },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
