@@ -43,6 +43,24 @@ class ScheduleTest {
         assertEquals(listOf(today + 2, today + 4, today + 6), dueDays(plant(), listOf(water(today - 5), water(today))))
     }
 
+    @Test fun deletingTheLatestLogFallsBackToThePreviousOne() {
+        val earlier = water(today - 3)
+        val adHoc = water(today)
+        assertEquals(listOf(today + 2, today + 4, today + 6), dueDays(plant(), listOf(earlier, adHoc)))
+        // Ad-hoc watering deleted from the journal: the countdown goes back to the earlier watering.
+        val proj = Projection(plant(), listOf(earlier), today)
+        assertEquals(1, proj.dueOn(today)?.overdueDays)
+    }
+
+    @Test fun adHocFeedingResetsBothCountdowns() {
+        // Water every 2, feed every 7. Last watered yesterday, fed 3 days ago; ad-hoc feed today.
+        val proj = Projection(plant(waterEvery = 2, feedEvery = 7), listOf(feed(today - 3), water(today - 1), feed(today)), today)
+        assertNull(proj.dueOn(today + 1))
+        assertEquals(TaskKind.WATER, proj.dueOn(today + 2)?.kind)
+        assertEquals(TaskKind.FEED, proj.next(TaskKind.FEED)?.second?.kind)
+        assertEquals(today + 7, proj.next(TaskKind.FEED)?.first)
+    }
+
     @Test fun neverWateredIsDueFromTheStartDate() {
         val due = Projection(plant(start = today - 4), emptyList(), today).dueOn(today)!!
         assertEquals(4, due.overdueDays)

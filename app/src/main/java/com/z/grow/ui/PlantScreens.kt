@@ -39,6 +39,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.FilledTonalButton
 import com.z.grow.data.DeathReason
 import com.z.grow.data.EarnedAchievement
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -73,10 +80,27 @@ import java.time.LocalDate
 fun PlantsScreen(data: GrowData, vm: GrowViewModel, onOpen: (Long) -> Unit) {
     var showArchive by rememberSaveable { mutableStateOf(false) }
     var pendingStage by remember { mutableStateOf<Pair<Plant, GrowStage>?>(null) }
+    var editingLog by remember { mutableStateOf<TaskLog?>(null) }
     val plants = if (showArchive) data.archivedPlants else data.activePlants
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    fun quickLog(plant: Plant, kind: TaskKind) = scope.launch {
+        val verb = if (kind == TaskKind.FEED) "Fed" else "Watered"
+        if (!vm.quickLog(plant, kind)) {
+            snackbar.showSnackbar("${plant.displayName} was already ${verb.lowercase()} today")
+            return@launch
+        }
+        val result = snackbar.showSnackbar("$verb ${plant.displayName}", actionLabel = "Add pH", duration = SnackbarDuration.Long)
+        if (result == SnackbarResult.ActionPerformed) {
+            val today = LocalDate.now().toEpochDay()
+            editingLog = vm.data.value.logs.firstOrNull { it.plantId == plant.id && it.epochDay == today && it.kind == kind }
+        }
+    }
 
     Scaffold(
         topBar = { GrowTopBar("Plants") },
+        snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             if (!showArchive) {
                 ExtendedFloatingActionButton(
@@ -122,6 +146,7 @@ fun PlantsScreen(data: GrowData, vm: GrowViewModel, onOpen: (Long) -> Unit) {
                     lastPh = data.logsFor(plant.id).firstNotNullOfOrNull { it.ph },
                     badges = data.achievementsFor(plant.id),
                     data = data,
+                    onQuickLog = { kind -> quickLog(plant, kind) },
                     onStageChange = { stage ->
                         if (stage.needsDetails) pendingStage = plant to stage
                         else vm.savePlant(plant.movedTo(stage), original = plant)
@@ -130,6 +155,8 @@ fun PlantsScreen(data: GrowData, vm: GrowViewModel, onOpen: (Long) -> Unit) {
             }
         }
     }
+
+    editingLog?.let { LogEditDialog(it, data, vm) { editingLog = null } }
 
     pendingStage?.let { (plant, stage) ->
         StageChangeDialog(
@@ -151,6 +178,7 @@ private fun PlantCard(
     lastPh: Double?,
     badges: List<EarnedAchievement>,
     data: GrowData,
+    onQuickLog: (TaskKind) -> Unit,
     onStageChange: (GrowStage) -> Unit,
     onClick: () -> Unit,
 ) {
@@ -173,6 +201,12 @@ private fun PlantCard(
                 StageButton(plant.stage, onStageChange)
                 StageStatus(plant, environment, data, today)
                 lastPh?.let { Text("Last pH %.1f".format(it), style = MaterialTheme.typography.bodySmall, color = WaterColor) }
+                if (plant.stage.isGrowing) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+                        FilledTonalButton(onClick = { onQuickLog(TaskKind.WATER) }) { Text("💧 Water") }
+                        FilledTonalButton(onClick = { onQuickLog(TaskKind.FEED) }) { Text("🧪 Feed") }
+                    }
+                }
                 BadgeRow(badges, Modifier.padding(top = 4.dp))
             }
         }

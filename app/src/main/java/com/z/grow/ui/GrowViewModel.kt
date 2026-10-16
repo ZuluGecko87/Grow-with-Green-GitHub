@@ -163,6 +163,14 @@ class GrowViewModel(private val app: Application) : AndroidViewModel(app) {
             )
         }
 
+    /** One-tap log for today. Returns false (and changes nothing) if it was already logged today. */
+    suspend fun quickLog(plant: Plant, kind: TaskKind): Boolean {
+        val today = LocalDate.now().toEpochDay()
+        if (data.value.logs.any { it.plantId == plant.id && it.epochDay == today && it.kind == kind }) return false
+        dao.upsertTaskLog(TaskLog(plantId = plant.id, epochDay = today, kind = kind))
+        return true
+    }
+
     fun removeTaskLog(log: TaskLog) = viewModelScope.launch {
         dao.deleteTaskLog(log.plantId, log.epochDay, log.kind.name)
     }
