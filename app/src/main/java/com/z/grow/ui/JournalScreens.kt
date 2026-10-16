@@ -1,11 +1,7 @@
 package com.z.grow.ui
 
-import android.content.ActivityNotFoundException
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,8 +10,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -25,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -35,6 +30,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,33 +44,30 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import coil.compose.AsyncImage
+import com.z.grow.data.EntryKind
 import com.z.grow.data.GrowData
 import com.z.grow.data.JournalEntry
 import com.z.grow.data.PhotoStore
 import com.z.grow.data.Plant
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
+import com.z.grow.data.TaskKind
+import com.z.grow.data.TaskLog
+import com.z.grow.data.TimelineItem
 import java.time.LocalDate
 
 @Composable
-fun JournalScreen(data: GrowData, onOpen: (Long) -> Unit, onNew: () -> Unit) {
+fun JournalScreen(data: GrowData, vm: GrowViewModel, onOpen: (Long) -> Unit, onNew: () -> Unit) {
     var filter by rememberSaveable { mutableStateOf<Long?>(null) }
-    val entries = data.journal.filter { filter == null || it.plantId == filter }
+    var showLogs by rememberSaveable { mutableStateOf(true) }
+    var editingLog by remember { mutableStateOf<TaskLog?>(null) }
+    val items = data.timeline(filter, includeLogs = showLogs)
 
     Scaffold(
         topBar = { GrowTopBar("Journal") },
@@ -102,64 +95,119 @@ fun JournalScreen(data: GrowData, onOpen: (Long) -> Unit, onNew: () -> Unit) {
                     ) { filter = it?.id }
                 }
             }
-            if (entries.isEmpty()) {
-                item { EmptyState("No journal entries yet.\nAdd notes and photos as your plants grow.") }
+            item {
+                FilterChip(
+                    selected = showLogs,
+                    onClick = { showLogs = !showLogs },
+                    label = { Text("Waterings & feedings") },
+                )
             }
-            items(entries, key = { it.id }) { entry ->
-                JournalEntryCard(entry, data) { onOpen(entry.id) }
+            if (items.isEmpty()) {
+                item { EmptyState("Nothing here yet.\nWaterings, photos and notes will build up a history as your plants grow.") }
+            }
+            items(items, key = { it.key }) { item ->
+                TimelineCard(item, data, onOpenEntry = onOpen, onEditLog = { editingLog = it })
             }
         }
     }
+
+    editingLog?.let { LogEditDialog(it, data, vm) { editingLog = null } }
 }
+
+private val TimelineItem.key: String
+    get() = when (this) {
+        is TimelineItem.Entry -> "entry-${entry.id}"
+        is TimelineItem.Log -> "log-${log.id}"
+    }
+
+@Composable
+fun TimelineCard(item: TimelineItem, data: GrowData, onOpenEntry: (Long) -> Unit, onEditLog: (TaskLog) -> Unit) {
+    when (item) {
+        is TimelineItem.Entry -> JournalEntryCard(item.entry, data) { onOpenEntry(item.entry.id) }
+        is TimelineItem.Log -> LogCard(item.log, data) { onEditLog(item.log) }
+    }
+}
+
+/** Edit or delete a logged watering/feeding. */
+@Composable
+fun LogEditDialog(log: TaskLog, data: GrowData, vm: GrowViewModel, onDismiss: () -> Unit) {
+    LogTaskDialog(
+        request = LogRequest(data.plant(log.plantId), log.kind, log),
+        plants = data.plants,
+        onDismiss = onDismiss,
+        onSave = { plantId, kind, ph, ppm, amount ->
+            vm.logTask(plantId, LocalDate.ofEpochDay(log.epochDay), kind, ph, ppm, amount)
+            onDismiss()
+        },
+        onDelete = {
+            vm.removeTaskLog(log)
+            onDismiss()
+        },
+    )
+}
+
+@Composable
+private fun LogCard(log: TaskLog, data: GrowData, onClick: () -> Unit) {
+    val plant = data.plant(log.plantId)
+    val accent = if (log.kind == TaskKind.FEED) FeedColor else WaterColor
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            PlantAvatar(plant, size = 36)
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(
+                    "${if (log.kind == TaskKind.FEED) "Fed" else "Watered"} ${plant?.displayName ?: ""}",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(formatDay(log.epochDay), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (log.readings.isNotEmpty()) {
+                    Text(log.readings, style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Medium)
+                }
+            }
+            Dot(accent)
+        }
+    }
+}
+
+private val EntryKind.badge: String?
+    get() = when (this) {
+        EntryKind.NOTE -> null
+        EntryKind.PLANT_ADDED -> "🌱 Plant added"
+        EntryKind.PROFILE_PHOTO -> "📷 Profile photo"
+        EntryKind.STAGE_CHANGE -> "🌿 Stage change"
+    }
 
 @Composable
 fun JournalEntryCard(entry: JournalEntry, data: GrowData, onClick: () -> Unit) {
     val context = LocalContext.current
     val photos = data.photosFor(entry.id)
+    val plant = data.plant(entry.plantId)
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(8.dp).background(NoteColor, CircleShape))
-                Text(
-                    formatDay(entry.epochDay) + (data.plant(entry.plantId)?.let { " · ${it.displayName}" } ?: ""),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
+                if (plant != null) {
+                    PlantAvatar(plant, size = 36)
+                } else {
+                    Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(10.dp).background(NoteColor, CircleShape))
+                    }
+                }
+                Column(Modifier.padding(start = 12.dp)) {
+                    Text(plant?.displayName ?: "General", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        formatDay(entry.epochDay) + (entry.kind.badge?.let { " · $it" } ?: ""),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (entry.text.isNotBlank()) Text(entry.text, style = MaterialTheme.typography.bodyMedium)
             if (photos.isNotEmpty()) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(photos, key = { it.id }) { photo ->
-                        PhotoThumb(PhotoStore.file(context, photo.fileName), size = 72)
+                        PhotoThumb(PhotoStore.file(context, photo.fileName), size = 96)
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun PhotoThumb(file: File, size: Int, modifier: Modifier = Modifier) {
-    AsyncImage(
-        model = file,
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier = modifier
-            .size(size.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
-    )
-}
-
-@Composable
-private fun PhotoViewer(file: File, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(
-            Modifier.fillMaxSize().background(Color.Black).clickable(onClick = onDismiss),
-            contentAlignment = Alignment.Center,
-        ) {
-            AsyncImage(model = file, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
         }
     }
 }
@@ -174,7 +222,6 @@ fun JournalEditScreen(
     onDone: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var form by remember {
         mutableStateOf(
             if (id == 0L) {
@@ -188,7 +235,7 @@ fun JournalEditScreen(
     var original by remember { mutableStateOf(emptySet<String>()) }
     var viewing by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
-    var pendingCameraFile by rememberSaveable { mutableStateOf<String?>(null) }
+    val picker = rememberPhotoPicker(maxItems = 10) { photos.addAll(it) }
 
     LaunchedEffect(id) {
         if (id != 0L) {
@@ -205,18 +252,6 @@ fun JournalEditScreen(
         onDone()
     }
     BackHandler(onBack = discard)
-
-    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val file = pendingCameraFile?.let(::File)
-        if (ok && file != null && file.length() > 0) photos.add(file.name) else file?.delete()
-        pendingCameraFile = null
-    }
-    val pickPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
-        scope.launch {
-            val imported = withContext(Dispatchers.IO) { uris.mapNotNull { PhotoStore.import(context, it) } }
-            photos.addAll(imported)
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -260,25 +295,8 @@ fun JournalEditScreen(
 
             SectionTitle("Photos")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = {
-                        val file = PhotoStore.newFile(context)
-                        pendingCameraFile = file.path
-                        try {
-                            takePicture.launch(PhotoStore.uriFor(context, file))
-                        } catch (_: ActivityNotFoundException) {
-                            pendingCameraFile = null
-                            Toast.makeText(context, "No camera app found", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                ) { Text("Take photo") }
-                OutlinedButton(
-                    onClick = {
-                        pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    },
-                    modifier = Modifier.weight(1f),
-                ) { Text("Choose photos") }
+                OutlinedButton(onClick = picker.takePhoto, modifier = Modifier.weight(1f)) { Text("Take photo") }
+                OutlinedButton(onClick = picker.choose, modifier = Modifier.weight(1f)) { Text("Choose photos") }
             }
             if (photos.isNotEmpty()) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -304,6 +322,11 @@ fun JournalEditScreen(
                         }
                     }
                 }
+                Text(
+                    "Tap a photo to view it or make it the plant's profile photo.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             Button(
@@ -317,7 +340,21 @@ fun JournalEditScreen(
         }
     }
 
-    viewing?.let { PhotoViewer(PhotoStore.file(context, it)) { viewing = null } }
+    viewing?.let { name ->
+        val plant = data.plant(form?.plantId)
+        PhotoViewer(
+            file = PhotoStore.file(context, name),
+            onDismiss = { viewing = null },
+            actionLabel = plant?.let { "Make ${it.displayName}'s profile photo" },
+            onAction = {
+                plant?.let {
+                    vm.setProfilePhoto(it.id, name)
+                    Toast.makeText(context, "Profile photo updated", Toast.LENGTH_SHORT).show()
+                }
+                viewing = null
+            },
+        )
+    }
 
     if (confirmDelete) {
         ConfirmDeleteDialog(

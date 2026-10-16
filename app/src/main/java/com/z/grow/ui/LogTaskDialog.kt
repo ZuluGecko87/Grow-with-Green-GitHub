@@ -35,6 +35,7 @@ fun LogTaskDialog(
     plants: List<Plant>,
     onDismiss: () -> Unit,
     onSave: (plantId: Long, kind: TaskKind, ph: Double?, ppm: Int?, amount: String) -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     var plant by remember { mutableStateOf(request.plant ?: plants.firstOrNull()) }
     var kind by remember { mutableStateOf(request.kind) }
@@ -106,6 +107,11 @@ fun LogTaskDialog(
                 enabled = plant != null && !phError && !ppmError,
             ) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            Row {
+                if (onDelete != null) TextButton(onClick = onDelete) { Text("Delete") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
     )
 }

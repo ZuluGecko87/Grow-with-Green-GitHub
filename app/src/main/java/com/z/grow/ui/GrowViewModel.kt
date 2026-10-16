@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.z.grow.data.AppSettings
 import com.z.grow.data.Backup
+import com.z.grow.data.EntryKind
 import com.z.grow.data.GrowData
 import com.z.grow.data.GrowDatabase
 import com.z.grow.data.GrowEnvironment
@@ -19,12 +20,14 @@ import com.z.grow.data.TaskLog
 import com.z.grow.data.data
 import com.z.grow.work.AutoBackupWorker
 import com.z.grow.work.ReminderWorker
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 class GrowViewModel(private val app: Application) : AndroidViewModel(app) {
@@ -55,11 +58,64 @@ class GrowViewModel(private val app: Application) : AndroidViewModel(app) {
         dao.deleteEnvironment(environment)
     }
 
-    fun savePlant(plant: Plant) = viewModelScope.launch {
-        if (plant.id == 0L) dao.insertPlant(plant) else dao.updatePlant(plant)
+    /**
+     * Saves the plant and records history in the journal: when it's added, when its profile
+     * photo changes (with a copy of the photo) and when its stage changes. [original] is the
+     * plant as it was loaded, or null for a new plant.
+     */
+    fun savePlant(plant: Plant, original: Plant?) = viewModelScope.launch {
+        val id = if (original == null) dao.insertPlant(plant.copy(id = 0)) else plant.id.also { dao.updatePlant(plant) }
+        val photoChanged = plant.photoFileName != original?.photoFileName
+        val photoCopy = if (photoChanged) plant.photoFileName?.let { copyPhoto(it) } else null
+
+        if (original == null) {
+            val details = listOf(plant.strain, plant.manufacturer).filter { it.isNotBlank() }.joinToString(" · ")
+            dao.saveJournalEntry(
+                JournalEntry(
+                    epochDay = plant.startEpochDay,
+                    text = "Started ${plant.displayName}" + if (details.isNotEmpty()) " ($details)" else "",
+                    plantId = id,
+                    kind = EntryKind.PLANT_ADDED,
+                ),
+                listOfNotNull(photoCopy),
+            )
+            return@launch
+        }
+        val today = LocalDate.now().toEpochDay()
+        if (photoCopy != null) {
+            dao.saveJournalEntry(
+                JournalEntry(epochDay = today, text = "New profile photo", plantId = id, kind = EntryKind.PROFILE_PHOTO),
+                listOf(photoCopy),
+            )
+        }
+        if (plant.stage != original.stage) {
+            dao.saveJournalEntry(
+                JournalEntry(
+                    epochDay = today,
+                    text = "Stage changed: ${original.stage.label} → ${plant.stage.label}",
+                    plantId = id,
+                    kind = EntryKind.STAGE_CHANGE,
+                ),
+                emptyList(),
+            )
+        }
+        if (photoChanged) original.photoFileName?.let { PhotoStore.delete(app, listOf(it)) }
     }
 
-    fun deletePlant(plant: Plant) = viewModelScope.launch { dao.deletePlant(plant) }
+    fun deletePlant(plant: Plant) = viewModelScope.launch {
+        dao.deletePlant(plant)
+        plant.photoFileName?.let { PhotoStore.delete(app, listOf(it)) }
+    }
+
+    /** Uses a copy of a journal photo as the plant's profile photo. */
+    fun setProfilePhoto(plantId: Long, fileName: String) = viewModelScope.launch {
+        val plant = dao.plant(plantId) ?: return@launch
+        val copy = copyPhoto(fileName) ?: return@launch
+        dao.updatePlant(plant.copy(photoFileName = copy))
+        plant.photoFileName?.let { PhotoStore.delete(app, listOf(it)) }
+    }
+
+    private suspend fun copyPhoto(fileName: String) = withContext(Dispatchers.IO) { PhotoStore.copy(app, fileName) }
 
     fun logTask(plantId: Long, date: LocalDate, kind: TaskKind, ph: Double?, ppm: Int?, amount: String) =
         viewModelScope.launch {

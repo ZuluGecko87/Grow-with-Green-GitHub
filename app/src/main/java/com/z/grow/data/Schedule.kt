@@ -49,6 +49,22 @@ data class DayAgenda(
     val hasJournal get() = journal.isNotEmpty()
 }
 
+/** One row in a journal timeline: a written/recorded entry or a watering/feeding log. */
+sealed interface TimelineItem {
+    val epochDay: Long
+    val plantId: Long?
+
+    data class Entry(val entry: JournalEntry) : TimelineItem {
+        override val epochDay get() = entry.epochDay
+        override val plantId get() = entry.plantId
+    }
+
+    data class Log(val log: TaskLog) : TimelineItem {
+        override val epochDay get() = log.epochDay
+        override val plantId: Long get() = log.plantId
+    }
+}
+
 /** Snapshot of everything in the database, with schedule lookups. */
 class GrowData(
     val environments: List<GrowEnvironment>,
@@ -80,6 +96,15 @@ class GrowData(
     /** Newest first. */
     fun logsFor(plantId: Long): List<TaskLog> =
         logs.filter { it.plantId == plantId }.sortedByDescending { it.epochDay }
+
+    /** Journal entries and logs, newest day first; optionally for one plant. */
+    fun timeline(plantId: Long? = null, includeLogs: Boolean = true): List<TimelineItem> {
+        val entries = journal.map { TimelineItem.Entry(it) }
+        val logItems = if (includeLogs) logs.map { TimelineItem.Log(it) } else emptyList()
+        return (entries + logItems)
+            .filter { plantId == null || it.plantId == plantId }
+            .sortedWith(compareByDescending<TimelineItem> { it.epochDay }.thenBy { if (it is TimelineItem.Log) 1 else 0 })
+    }
 
     fun agenda(date: LocalDate): DayAgenda {
         val day = date.toEpochDay()

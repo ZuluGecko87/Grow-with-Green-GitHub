@@ -85,7 +85,7 @@ fun GrowApp(vm: GrowViewModel = viewModel()) {
                 PlantsScreen(data, onOpen = { nav.navigate("plant/$it") })
             }
             composable(Tab.JOURNAL.route) {
-                JournalScreen(data, onOpen = { nav.navigate("journal/$it") }, onNew = { nav.navigate("journal/0") })
+                JournalScreen(data, vm, onOpen = { nav.navigate("journal/$it") }, onNew = { nav.navigate("journal/0") })
             }
             composable(Tab.ENVIRONMENTS.route) {
                 EnvironmentsScreen(data, onOpen = { nav.navigate("environment/$it") })
@@ -98,6 +98,7 @@ fun GrowApp(vm: GrowViewModel = viewModel()) {
                     vm = vm,
                     onDone = { nav.popBackStack() },
                     onNewJournal = { nav.navigate("journal/0?plant=$id") },
+                    onOpenJournal = { entryId -> nav.navigate("journal/$entryId") },
                 )
             }
             composable("environment/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {

@@ -287,6 +287,7 @@ private fun TaskCard(task: PlantTask, onCheckedChange: (Boolean) -> Unit, onClic
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(Modifier.padding(end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Top) {
             Checkbox(checked = task.done, onCheckedChange = onCheckedChange)
+            PlantAvatar(task.plant, size = 40, modifier = Modifier.padding(top = 4.dp, end = 12.dp))
             Column(Modifier.weight(1f).padding(top = 12.dp)) {
                 Text(
                     "${task.kind.label} ${task.plant.displayName}" + if (task.scheduled) "" else " (extra)",

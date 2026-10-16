@@ -1,5 +1,6 @@
 package com.z.grow.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,15 +40,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.z.grow.data.Catalog
 import com.z.grow.data.Genetics
 import com.z.grow.data.GrowData
 import com.z.grow.data.GrowEnvironment
 import com.z.grow.data.GrowStage
+import com.z.grow.data.PhotoStore
 import com.z.grow.data.Plant
 import com.z.grow.data.PlantSource
 import com.z.grow.data.PlantType
 import com.z.grow.data.TaskKind
+import com.z.grow.data.TaskLog
 import com.z.grow.data.nextDay
 import java.time.LocalDate
 
@@ -89,7 +94,9 @@ private fun PlantCard(plant: Plant, environment: GrowEnvironment?, lastPh: Doubl
     val today = LocalDate.now().toEpochDay()
     val day = today - plant.startEpochDay + 1
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        PlantAvatar(plant, size = 72)
+        Column(Modifier.weight(1f).padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(plant.displayName, style = MaterialTheme.typography.titleMedium)
             val lineage = listOf(
                 plant.strain.takeIf { it.isNotBlank() && it != plant.displayName },
@@ -118,20 +125,50 @@ private fun PlantCard(plant: Plant, environment: GrowEnvironment?, lastPh: Doubl
             }
             lastPh?.let { Text("Last pH %.1f".format(it), style = MaterialTheme.typography.bodySmall, color = WaterColor) }
         }
+        }
     }
 }
 
 @Composable
-fun PlantEditScreen(id: Long, data: GrowData, vm: GrowViewModel, onDone: () -> Unit, onNewJournal: () -> Unit) {
+fun PlantEditScreen(
+    id: Long,
+    data: GrowData,
+    vm: GrowViewModel,
+    onDone: () -> Unit,
+    onNewJournal: () -> Unit,
+    onOpenJournal: (Long) -> Unit,
+) {
+    val context = LocalContext.current
     var form by remember { mutableStateOf(if (id == 0L) Plant() else null) }
+    var original by remember { mutableStateOf<Plant?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var editingLog by remember { mutableStateOf<TaskLog?>(null) }
     LaunchedEffect(id) {
-        if (id != 0L) form = vm.plant(id) ?: Plant()
+        if (id != 0L) {
+            val loaded = vm.plant(id) ?: Plant()
+            original = loaded
+            form = loaded
+        }
     }
+
+    /** Deletes a profile photo picked in this session that won't be kept. */
+    fun dropUnsavedPhoto(fileName: String?) {
+        if (fileName != null && fileName != original?.photoFileName) PhotoStore.delete(context, listOf(fileName))
+    }
+    val picker = rememberPhotoPicker(maxItems = 1) { names ->
+        val current = form ?: return@rememberPhotoPicker
+        dropUnsavedPhoto(current.photoFileName)
+        form = current.copy(photoFileName = names.first())
+    }
+    val discard = {
+        dropUnsavedPhoto(form?.photoFileName)
+        onDone()
+    }
+    BackHandler(onBack = discard)
 
     Scaffold(
         topBar = {
-            GrowTopBar(if (id == 0L) "New plant" else "Edit plant", onBack = onDone) {
+            GrowTopBar(if (id == 0L) "New plant" else "Edit plant", onBack = discard) {
                 if (id != 0L) {
                     IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, "Delete plant") }
                 }
@@ -153,6 +190,22 @@ fun PlantEditScreen(id: Long, data: GrowData, vm: GrowViewModel, onDone: () -> U
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                PlantAvatar(f, size = 132)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) {
+                    OutlinedButton(onClick = picker.takePhoto) { Text("Take photo") }
+                    OutlinedButton(onClick = picker.choose) { Text("Choose photo") }
+                }
+                if (id != 0L) {
+                    Text(
+                        "Each new profile photo is saved to the journal.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+
             SectionTitle("Plant")
             OutlinedTextField(
                 value = f.name,
@@ -165,22 +218,22 @@ fun PlantEditScreen(id: Long, data: GrowData, vm: GrowViewModel, onDone: () -> U
             DropdownField("Plant type", PlantType.entries, f.type, { it.label }) { form = f.copy(type = it) }
 
             SectionTitle("Genetics")
-            OutlinedTextField(
+            SuggestField(
+                label = "Manufacturer / breeder",
+                value = f.manufacturer,
+                suggestions = Catalog.manufacturers(f.type),
+                onValueChange = { form = f.copy(manufacturer = it) },
+                placeholder = "Pick one or type your own",
+            )
+            SuggestField(
+                label = "Strain / variety",
                 value = f.strain,
+                suggestions = Catalog.strains(f.type, f.manufacturer),
                 onValueChange = { form = f.copy(strain = it) },
-                label = { Text("Strain / variety") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                placeholder = "Pick one or type your own",
             )
             DropdownField("Genetics", Genetics.entries, f.genetics, { it.label }) { form = f.copy(genetics = it) }
             DropdownField("Started from", PlantSource.entries, f.source, { it.label }) { form = f.copy(source = it) }
-            OutlinedTextField(
-                value = f.manufacturer,
-                onValueChange = { form = f.copy(manufacturer = it) },
-                label = { Text("Manufacturer / breeder") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
 
             SectionTitle("Grow")
             DropdownField(
@@ -221,16 +274,18 @@ fun PlantEditScreen(id: Long, data: GrowData, vm: GrowViewModel, onDone: () -> U
             )
             Button(
                 onClick = {
-                    vm.savePlant(f)
+                    vm.savePlant(f, original)
                     onDone()
                 },
                 enabled = f.name.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Save plant") }
 
-            if (id != 0L) PlantHistory(id, data, onNewJournal)
+            if (id != 0L) PlantHistory(id, data, onNewJournal, onOpenJournal, onEditLog = { editingLog = it })
         }
     }
+
+    editingLog?.let { LogEditDialog(it, data, vm) { editingLog = null } }
 
     if (confirmDelete) {
         ConfirmDeleteDialog(
@@ -246,11 +301,16 @@ fun PlantEditScreen(id: Long, data: GrowData, vm: GrowViewModel, onDone: () -> U
 }
 
 @Composable
-private fun PlantHistory(plantId: Long, data: GrowData, onNewJournal: () -> Unit) {
-    val logs = data.logsFor(plantId)
-    val journalCount = data.journal.count { it.plantId == plantId }
+private fun PlantHistory(
+    plantId: Long,
+    data: GrowData,
+    onNewJournal: () -> Unit,
+    onOpenJournal: (Long) -> Unit,
+    onEditLog: (TaskLog) -> Unit,
+) {
+    val timeline = data.timeline(plantId)
     SectionTitle("History")
-    val phs = logs.mapNotNull { it.ph }.take(5)
+    val phs = data.logsFor(plantId).mapNotNull { it.ph }.take(5)
     if (phs.isNotEmpty()) {
         Text(
             "Average pH (last ${phs.size}): %.1f".format(phs.average()),
@@ -258,23 +318,16 @@ private fun PlantHistory(plantId: Long, data: GrowData, onNewJournal: () -> Unit
             color = WaterColor,
         )
     }
-    if (logs.isEmpty()) {
-        Text("No waterings or feedings logged yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    logs.take(15).forEach { log ->
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Dot(if (log.kind == TaskKind.FEED) FeedColor else WaterColor)
-            Text(
-                "${formatDay(log.epochDay)} · ${if (log.kind == TaskKind.FEED) "Fed" else "Watered"}" +
-                    log.readings.takeIf { it.isNotEmpty() }?.let { " · $it" }.orEmpty(),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
-    }
-    Text(
-        "$journalCount journal entr${if (journalCount == 1) "y" else "ies"}",
-        style = MaterialTheme.typography.bodyMedium,
-    )
     OutlinedButton(onClick = onNewJournal, modifier = Modifier.fillMaxWidth()) { Text("Add journal entry for this plant") }
+    if (timeline.isEmpty()) {
+        Text("Nothing logged yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    timeline.take(30).forEach { TimelineCard(it, data, onOpenEntry = onOpenJournal, onEditLog = onEditLog) }
+    if (timeline.size > 30) {
+        Text(
+            "Showing the latest 30. See the Journal tab for everything.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }

@@ -29,6 +29,12 @@ object PhotoStore {
         }.onFailure { target.delete() }.getOrNull()
     }
 
+    /** Duplicates a stored photo so two records can own (and delete) their copies independently. */
+    fun copy(context: Context, fileName: String): String? {
+        val target = newFile(context)
+        return runCatching { file(context, fileName).copyTo(target).name }.onFailure { target.delete() }.getOrNull()
+    }
+
     fun delete(context: Context, fileNames: Collection<String>) {
         fileNames.forEach { file(context, it).delete() }
     }

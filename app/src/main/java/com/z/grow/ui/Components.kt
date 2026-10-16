@@ -140,6 +140,47 @@ fun <T> DropdownField(
     }
 }
 
+/** Free-text field with a filtered list of suggestions underneath. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SuggestField(
+    label: String,
+    value: String,
+    suggestions: List<String>,
+    onValueChange: (String) -> Unit,
+    placeholder: String? = null,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val query = value.trim()
+    val matches = suggestions.filter { query.isEmpty() || (it.contains(query, ignoreCase = true) && !it.equals(query, ignoreCase = true)) }
+    val showMenu = expanded && matches.isNotEmpty()
+    ExposedDropdownMenuBox(expanded = showMenu, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {
+                onValueChange(it)
+                expanded = true
+            },
+            label = { Text(label) },
+            placeholder = placeholder?.let { { Text(it) } },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(showMenu) },
+            singleLine = true,
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryEditable).fillMaxWidth(),
+        )
+        ExposedDropdownMenu(expanded = showMenu, onDismissRequest = { expanded = false }) {
+            matches.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = {
+                        onValueChange(option)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
 /** A read-only field that opens a picker when tapped. */
 @Composable
 fun PickerField(label: String, value: String, onClick: () -> Unit) {

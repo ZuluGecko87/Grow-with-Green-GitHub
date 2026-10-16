@@ -65,6 +65,14 @@ enum class GrowStage(val label: String) {
     HARVESTED("Harvested"),
 }
 
+/** Journal entries are notes the user writes, or history the app records automatically. */
+enum class EntryKind(val label: String) {
+    NOTE("Note"),
+    PLANT_ADDED("Plant added"),
+    PROFILE_PHOTO("Profile photo"),
+    STAGE_CHANGE("Stage change"),
+}
+
 enum class TaskKind(val label: String) {
     WATER("Water"), FEED("Feed")
 }
@@ -142,6 +150,8 @@ data class Plant(
     val feedEveryDays: Int = 0,
     val notes: String = "",
     @ColumnInfo(defaultValue = "1") val remindersEnabled: Boolean = true,
+    /** Profile photo in the photos folder, or null. */
+    val photoFileName: String? = null,
 ) {
     val displayName: String get() = name.ifBlank { strain.ifBlank { "Unnamed plant" } }
 }
@@ -184,6 +194,7 @@ data class JournalEntry(
     val epochDay: Long = LocalDate.now().toEpochDay(),
     val text: String = "",
     val plantId: Long? = null,
+    @ColumnInfo(defaultValue = "NOTE") val kind: EntryKind = EntryKind.NOTE,
 )
 
 /** A photo attached to a journal entry; [fileName] lives in the app's photos folder. */
