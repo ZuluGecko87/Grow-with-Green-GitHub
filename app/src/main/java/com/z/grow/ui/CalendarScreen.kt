@@ -21,8 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -31,10 +30,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +47,6 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.z.grow.data.DayAgenda
 import com.z.grow.data.GrowData
-import com.z.grow.data.GrowNote
 import com.z.grow.data.LightStatus
 import com.z.grow.data.PlantTask
 import com.z.grow.data.TaskKind
@@ -62,13 +58,28 @@ private val MonthTitle = DateTimeFormatter.ofPattern("MMMM yyyy")
 private val WeekDays = listOf("S", "M", "T", "W", "T", "F", "S")
 
 @Composable
-fun CalendarScreen(data: GrowData, vm: GrowViewModel, onAddEnvironment: () -> Unit, onAddPlant: () -> Unit) {
+fun CalendarScreen(
+    data: GrowData,
+    vm: GrowViewModel,
+    onAddEnvironment: () -> Unit,
+    onAddPlant: () -> Unit,
+    onOpenJournal: (Long) -> Unit,
+    onNewJournal: (epochDay: Long) -> Unit,
+    onSettings: () -> Unit,
+) {
     var month by rememberSaveable { mutableStateOf(YearMonth.now()) }
     var selected by rememberSaveable { mutableStateOf(LocalDate.now()) }
-    var addingNote by remember { mutableStateOf(false) }
+    var logging by remember { mutableStateOf<LogRequest?>(null) }
     val agenda = data.agenda(selected)
 
-    Scaffold(topBar = { GrowTopBar("Grow with Green") }, contentWindowInsets = WindowInsets(0)) { padding ->
+    Scaffold(
+        topBar = {
+            GrowTopBar("Grow with Green") {
+                IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Settings") }
+            }
+        },
+        contentWindowInsets = WindowInsets(0),
+    ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
@@ -98,24 +109,42 @@ fun CalendarScreen(data: GrowData, vm: GrowViewModel, onAddEnvironment: () -> Un
                 item { Text("No watering or feeding scheduled.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             items(agenda.tasks, key = { "${it.plant.id}-${it.kind}" }) { task ->
-                TaskCard(task) { done -> vm.setTaskDone(task.plant.id, selected, task.kind, done) }
+                TaskCard(
+                    task = task,
+                    onCheckedChange = { checked ->
+                        if (checked) logging = LogRequest(task.plant, task.kind, null)
+                        else task.log?.let(vm::removeTaskLog)
+                    },
+                    onClick = { logging = LogRequest(task.plant, task.kind, task.log) },
+                )
             }
             items(agenda.lights, key = { "light-${it.environment.id}" }) { LightCard(it) }
-            items(agenda.notes, key = { "note-${it.id}" }) { note -> NoteCard(note) { vm.deleteNote(note) } }
+            items(agenda.journal, key = { "journal-${it.id}" }) { entry ->
+                JournalEntryCard(entry, data) { onOpenJournal(entry.id) }
+            }
             item {
-                OutlinedButton(onClick = { addingNote = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Add note for this day")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { logging = LogRequest(null, TaskKind.WATER, null) },
+                        enabled = data.plants.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Log watering") }
+                    OutlinedButton(onClick = { onNewJournal(selected.toEpochDay()) }, modifier = Modifier.weight(1f)) {
+                        Text("Journal entry")
+                    }
                 }
             }
         }
     }
 
-    if (addingNote) {
-        AddNoteDialog(
-            onDismiss = { addingNote = false },
-            onAdd = {
-                vm.addNote(selected, it)
-                addingNote = false
+    logging?.let { request ->
+        LogTaskDialog(
+            request = request,
+            plants = data.plants,
+            onDismiss = { logging = null },
+            onSave = { plantId, kind, ph, ppm, amount ->
+                vm.logTask(plantId, selected, kind, ph, ppm, amount)
+                logging = null
             },
         )
     }
@@ -234,7 +263,7 @@ private fun DayCell(
             if (agenda.hasWater) Dot(WaterColor)
             if (agenda.hasFeed) Dot(FeedColor)
             if (agenda.hasFlip) Dot(LightColor)
-            if (agenda.hasNotes) Dot(NoteColor)
+            if (agenda.hasJournal) Dot(NoteColor)
         }
     }
 }
@@ -242,7 +271,7 @@ private fun DayCell(
 @Composable
 private fun Legend() {
     Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-        listOf(WaterColor to "Water", FeedColor to "Feed", LightColor to "Light change", NoteColor to "Note").forEach { (color, label) ->
+        listOf(WaterColor to "Water", FeedColor to "Feed", LightColor to "Lights", NoteColor to "Journal").forEach { (color, label) ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Dot(color)
                 Spacer(Modifier.width(4.dp))
@@ -253,14 +282,14 @@ private fun Legend() {
 }
 
 @Composable
-private fun TaskCard(task: PlantTask, onDoneChange: (Boolean) -> Unit) {
+private fun TaskCard(task: PlantTask, onCheckedChange: (Boolean) -> Unit, onClick: () -> Unit) {
     val accent = if (task.kind == TaskKind.FEED) FeedColor else WaterColor
-    Card {
+    Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(Modifier.padding(end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Top) {
-            Checkbox(checked = task.done, onCheckedChange = onDoneChange)
+            Checkbox(checked = task.done, onCheckedChange = onCheckedChange)
             Column(Modifier.weight(1f).padding(top = 12.dp)) {
                 Text(
-                    "${task.kind.label} ${task.plant.displayName}",
+                    "${task.kind.label} ${task.plant.displayName}" + if (task.scheduled) "" else " (extra)",
                     style = MaterialTheme.typography.titleSmall,
                     textDecoration = if (task.done) TextDecoration.LineThrough else null,
                 )
@@ -275,6 +304,10 @@ private fun TaskCard(task: PlantTask, onDoneChange: (Boolean) -> Unit) {
                         val dose = if (n.dose.isBlank()) "" else " — ${n.dose}"
                         Text("• ${n.name}$brand$dose", style = MaterialTheme.typography.bodySmall)
                     }
+                }
+                val readings = task.log?.readings.orEmpty()
+                if (readings.isNotEmpty()) {
+                    Text(readings, style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Medium)
                 }
             }
             Box(Modifier.padding(top = 18.dp)) { Dot(accent) }
@@ -301,34 +334,4 @@ private fun LightCard(light: LightStatus) {
             }
         }
     }
-}
-
-@Composable
-private fun NoteCard(note: GrowNote, onDelete: () -> Unit) {
-    Card {
-        Row(Modifier.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Dot(NoteColor)
-            Text(note.text, modifier = Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 12.dp))
-            IconButton(onClick = onDelete) { Icon(Icons.Filled.Close, "Delete note") }
-        }
-    }
-}
-
-@Composable
-private fun AddNoteDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New note") },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                placeholder = { Text("Topped plants, pH 6.3, etc.") },
-                minLines = 3,
-            )
-        },
-        confirmButton = { TextButton(onClick = { onAdd(text.trim()) }, enabled = text.isNotBlank()) { Text("Add") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }

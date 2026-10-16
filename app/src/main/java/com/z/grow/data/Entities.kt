@@ -1,5 +1,6 @@
 package com.z.grow.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -140,11 +141,12 @@ data class Plant(
     /** 0 means no feeding schedule. Feed days replace that day's watering. */
     val feedEveryDays: Int = 0,
     val notes: String = "",
+    @ColumnInfo(defaultValue = "1") val remindersEnabled: Boolean = true,
 ) {
     val displayName: String get() = name.ifBlank { strain.ifBlank { "Unnamed plant" } }
 }
 
-/** Marks a scheduled task as done. */
+/** A watering or feeding that was done, with optional readings. */
 @Entity(
     tableName = "task_logs",
     foreignKeys = [
@@ -162,11 +164,43 @@ data class TaskLog(
     val plantId: Long,
     val epochDay: Long,
     val kind: TaskKind,
+    val ph: Double? = null,
+    val ppm: Int? = null,
+    @ColumnInfo(defaultValue = "") val amount: String = "",
+) {
+    /** e.g. "pH 6.3 · 650 ppm · 1 gal"; empty if nothing was recorded. */
+    val readings: String
+        get() = listOfNotNull(
+            ph?.let { "pH %.1f".format(it) },
+            ppm?.let { "$it ppm" },
+            amount.takeIf { it.isNotBlank() },
+        ).joinToString(" · ")
+}
+
+/** A dated journal entry, optionally about one plant. Table name kept from v1. */
+@Entity(tableName = "notes")
+data class JournalEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val epochDay: Long = LocalDate.now().toEpochDay(),
+    val text: String = "",
+    val plantId: Long? = null,
 )
 
-@Entity(tableName = "notes")
-data class GrowNote(
+/** A photo attached to a journal entry; [fileName] lives in the app's photos folder. */
+@Entity(
+    tableName = "journal_photos",
+    foreignKeys = [
+        ForeignKey(
+            entity = JournalEntry::class,
+            parentColumns = ["id"],
+            childColumns = ["entryId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("entryId")],
+)
+data class JournalPhoto(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val epochDay: Long,
-    val text: String,
+    val entryId: Long,
+    val fileName: String,
 )

@@ -8,6 +8,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 
 @Dao
 abstract class GrowDao {
@@ -65,23 +66,73 @@ abstract class GrowDao {
     abstract suspend fun updatePlant(plant: Plant)
 
     @Delete
-    abstract suspend fun deletePlant(plant: Plant)
+    protected abstract suspend fun deletePlantRow(plant: Plant)
+
+    @Query("UPDATE notes SET plantId = NULL WHERE plantId = :plantId")
+    protected abstract suspend fun detachJournal(plantId: Long)
+
+    /** Deletes the plant and its logs but keeps its journal entries. */
+    @Transaction
+    open suspend fun deletePlant(plant: Plant) {
+        detachJournal(plant.id)
+        deletePlantRow(plant)
+    }
 
     @Query("SELECT * FROM task_logs")
     abstract fun taskLogs(): Flow<List<TaskLog>>
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    abstract suspend fun insertTaskLog(log: TaskLog)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertTaskLog(log: TaskLog)
 
     @Query("DELETE FROM task_logs WHERE plantId = :plantId AND epochDay = :epochDay AND kind = :kind")
     abstract suspend fun deleteTaskLog(plantId: Long, epochDay: Long, kind: String)
 
-    @Query("SELECT * FROM notes ORDER BY id")
-    abstract fun notes(): Flow<List<GrowNote>>
+    @Query("SELECT * FROM notes ORDER BY epochDay DESC, id DESC")
+    abstract fun journal(): Flow<List<JournalEntry>>
+
+    @Query("SELECT * FROM journal_photos ORDER BY id")
+    abstract fun journalPhotos(): Flow<List<JournalPhoto>>
+
+    @Query("SELECT * FROM notes WHERE id = :id")
+    abstract suspend fun journalEntry(id: Long): JournalEntry?
+
+    @Query("SELECT * FROM journal_photos WHERE entryId = :entryId ORDER BY id")
+    abstract suspend fun photosFor(entryId: Long): List<JournalPhoto>
 
     @Insert
-    abstract suspend fun insertNote(note: GrowNote)
+    protected abstract suspend fun insertJournalEntry(entry: JournalEntry): Long
+
+    @Update
+    protected abstract suspend fun updateJournalEntry(entry: JournalEntry)
+
+    @Query("DELETE FROM journal_photos WHERE entryId = :entryId")
+    protected abstract suspend fun clearPhotos(entryId: Long)
+
+    @Insert
+    protected abstract suspend fun insertPhotos(photos: List<JournalPhoto>)
+
+    /** Saves the entry and replaces its photo list. */
+    @Transaction
+    open suspend fun saveJournalEntry(entry: JournalEntry, photoFiles: List<String>): Long {
+        val id = if (entry.id == 0L) {
+            insertJournalEntry(entry)
+        } else {
+            updateJournalEntry(entry)
+            entry.id
+        }
+        clearPhotos(id)
+        insertPhotos(photoFiles.map { JournalPhoto(entryId = id, fileName = it) })
+        return id
+    }
 
     @Delete
-    abstract suspend fun deleteNote(note: GrowNote)
+    abstract suspend fun deleteJournalEntry(entry: JournalEntry)
+}
+
+/** Live snapshot of the whole database. */
+fun GrowDao.data(): Flow<GrowData> = combine(
+    combine(environments(), plants(), nutrients(), ::Triple),
+    combine(taskLogs(), journal(), journalPhotos(), ::Triple),
+) { (environments, plants, nutrients), (logs, journal, photos) ->
+    GrowData(environments, plants, nutrients, logs, journal, photos)
 }

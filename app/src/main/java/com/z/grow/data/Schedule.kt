@@ -21,13 +21,17 @@ fun Plant.nextDay(kind: TaskKind, from: Long): Long? {
     return null
 }
 
+/** A watering or feeding on one day: scheduled, logged, or both. */
 data class PlantTask(
     val plant: Plant,
     val kind: TaskKind,
-    val done: Boolean,
+    val scheduled: Boolean,
+    val log: TaskLog?,
     val environment: GrowEnvironment?,
     val nutrients: List<Nutrient>,
-)
+) {
+    val done: Boolean get() = log != null
+}
 
 data class LightStatus(val environment: GrowEnvironment, val hoursOn: Int, val isFlipDay: Boolean) {
     val lightsOffMinute: Int get() = (environment.lightsOnMinute + hoursOn * 60) % (24 * 60)
@@ -37,12 +41,12 @@ data class DayAgenda(
     val date: LocalDate,
     val tasks: List<PlantTask>,
     val lights: List<LightStatus>,
-    val notes: List<GrowNote>,
+    val journal: List<JournalEntry>,
 ) {
     val hasWater get() = tasks.any { it.kind == TaskKind.WATER }
     val hasFeed get() = tasks.any { it.kind == TaskKind.FEED }
     val hasFlip get() = lights.any { it.isFlipDay }
-    val hasNotes get() = notes.isNotEmpty()
+    val hasJournal get() = journal.isNotEmpty()
 }
 
 /** Snapshot of everything in the database, with schedule lookups. */
@@ -50,40 +54,59 @@ class GrowData(
     val environments: List<GrowEnvironment>,
     val plants: List<Plant>,
     nutrients: List<Nutrient>,
-    logs: List<TaskLog>,
-    notes: List<GrowNote>,
+    val logs: List<TaskLog>,
+    val journal: List<JournalEntry>,
+    photos: List<JournalPhoto>,
 ) {
     private val environmentsById = environments.associateBy { it.id }
+    private val plantsById = plants.associateBy { it.id }
     private val nutrientsByEnvironment = nutrients.groupBy { it.environmentId }
-    private val doneTasks = logs.mapTo(HashSet()) { Triple(it.plantId, it.epochDay, it.kind) }
-    private val notesByDay = notes.groupBy { it.epochDay }
+    private val logsByKey = logs.associateBy { Triple(it.plantId, it.epochDay, it.kind) }
+    private val logsByDay = logs.groupBy { it.epochDay }
+    private val journalByDay = journal.groupBy { it.epochDay }
+    private val photosByEntry = photos.groupBy { it.entryId }
 
     fun environment(id: Long?): GrowEnvironment? = id?.let { environmentsById[it] }
+
+    fun plant(id: Long?): Plant? = id?.let { plantsById[it] }
 
     fun nutrientsFor(environmentId: Long?): List<Nutrient> =
         environmentId?.let { nutrientsByEnvironment[it] }.orEmpty()
 
     fun plantsIn(environmentId: Long): List<Plant> = plants.filter { it.environmentId == environmentId }
 
+    fun photosFor(entryId: Long): List<JournalPhoto> = photosByEntry[entryId].orEmpty()
+
+    /** Newest first. */
+    fun logsFor(plantId: Long): List<TaskLog> =
+        logs.filter { it.plantId == plantId }.sortedByDescending { it.epochDay }
+
     fun agenda(date: LocalDate): DayAgenda {
         val day = date.toEpochDay()
-        val tasks = plants.mapNotNull { plant ->
+        val scheduled = plants.mapNotNull { plant ->
             val kind = plant.taskOn(day) ?: return@mapNotNull null
-            PlantTask(
-                plant = plant,
-                kind = kind,
-                done = Triple(plant.id, day, kind) in doneTasks,
-                environment = environment(plant.environmentId),
-                nutrients = if (kind == TaskKind.FEED) nutrientsFor(plant.environmentId) else emptyList(),
-            )
+            task(plant, kind, scheduled = true, log = logsByKey[Triple(plant.id, day, kind)])
         }
+        val scheduledKeys = scheduled.mapTo(HashSet()) { it.plant.id to it.kind }
+        val extra = logsByDay[day].orEmpty()
+            .filter { (it.plantId to it.kind) !in scheduledKeys }
+            .mapNotNull { log -> plantsById[log.plantId]?.let { task(it, log.kind, scheduled = false, log = log) } }
         val lights = environments.filter { it.hasLightSchedule }.map {
             LightStatus(it, it.lightHoursOn(day), it.flipEpochDay == day)
         }
-        return DayAgenda(date, tasks, lights, notesByDay[day].orEmpty())
+        return DayAgenda(date, scheduled + extra, lights, journalByDay[day].orEmpty())
     }
 
+    private fun task(plant: Plant, kind: TaskKind, scheduled: Boolean, log: TaskLog?) = PlantTask(
+        plant = plant,
+        kind = kind,
+        scheduled = scheduled,
+        log = log,
+        environment = environment(plant.environmentId),
+        nutrients = if (kind == TaskKind.FEED) nutrientsFor(plant.environmentId) else emptyList(),
+    )
+
     companion object {
-        val EMPTY = GrowData(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
+        val EMPTY = GrowData(emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList())
     }
 }

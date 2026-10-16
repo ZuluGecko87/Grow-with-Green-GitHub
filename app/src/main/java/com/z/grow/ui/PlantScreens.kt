@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,8 +24,10 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,7 +71,11 @@ fun PlantsScreen(data: GrowData, onOpen: (Long) -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(data.plants, key = { it.id }) { plant ->
-                    PlantCard(plant, data.environment(plant.environmentId)) { onOpen(plant.id) }
+                    PlantCard(
+                        plant = plant,
+                        environment = data.environment(plant.environmentId),
+                        lastPh = data.logsFor(plant.id).firstNotNullOfOrNull { it.ph },
+                    ) { onOpen(plant.id) }
                 }
             }
         }
@@ -76,7 +83,7 @@ fun PlantsScreen(data: GrowData, onOpen: (Long) -> Unit) {
 }
 
 @Composable
-private fun PlantCard(plant: Plant, environment: GrowEnvironment?, onClick: () -> Unit) {
+private fun PlantCard(plant: Plant, environment: GrowEnvironment?, lastPh: Double?, onClick: () -> Unit) {
     val today = LocalDate.now().toEpochDay()
     val day = today - plant.startEpochDay + 1
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
@@ -107,12 +114,13 @@ private fun PlantCard(plant: Plant, environment: GrowEnvironment?, onClick: () -
                 ).joinToString(" · ")
                 if (upcoming.isNotEmpty()) Text("Next: $upcoming", style = MaterialTheme.typography.bodySmall)
             }
+            lastPh?.let { Text("Last pH %.1f".format(it), style = MaterialTheme.typography.bodySmall, color = WaterColor) }
         }
     }
 }
 
 @Composable
-fun PlantEditScreen(id: Long, data: GrowData, vm: GrowViewModel, onDone: () -> Unit) {
+fun PlantEditScreen(id: Long, data: GrowData, vm: GrowViewModel, onDone: () -> Unit, onNewJournal: () -> Unit) {
     var form by remember { mutableStateOf(if (id == 0L) Plant() else null) }
     var confirmDelete by remember { mutableStateOf(false) }
     LaunchedEffect(id) {
@@ -145,8 +153,8 @@ fun PlantEditScreen(id: Long, data: GrowData, vm: GrowViewModel, onDone: () -> U
             OutlinedTextField(
                 value = f.name,
                 onValueChange = { form = f.copy(name = it) },
-                label = { Text("Name / label") },
-                placeholder = { Text("e.g. Tent A #1") },
+                label = { Text("Plant name") },
+                placeholder = { Text("e.g. Big Bertha") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -188,6 +196,17 @@ fun PlantEditScreen(id: Long, data: GrowData, vm: GrowViewModel, onDone: () -> U
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Reminders for this plant", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Included in the daily reminder (turn it on in Settings).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = f.remindersEnabled, onCheckedChange = { form = f.copy(remindersEnabled = it) })
+            }
 
             OutlinedTextField(
                 value = f.notes,
@@ -201,9 +220,11 @@ fun PlantEditScreen(id: Long, data: GrowData, vm: GrowViewModel, onDone: () -> U
                     vm.savePlant(f)
                     onDone()
                 },
-                enabled = f.name.isNotBlank() || f.strain.isNotBlank(),
+                enabled = f.name.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Save plant") }
+
+            if (id != 0L) PlantHistory(id, data, onNewJournal)
         }
     }
 
@@ -218,4 +239,38 @@ fun PlantEditScreen(id: Long, data: GrowData, vm: GrowViewModel, onDone: () -> U
             onDismiss = { confirmDelete = false },
         )
     }
+}
+
+@Composable
+private fun PlantHistory(plantId: Long, data: GrowData, onNewJournal: () -> Unit) {
+    val logs = data.logsFor(plantId)
+    val journalCount = data.journal.count { it.plantId == plantId }
+    SectionTitle("History")
+    val phs = logs.mapNotNull { it.ph }.take(5)
+    if (phs.isNotEmpty()) {
+        Text(
+            "Average pH (last ${phs.size}): %.1f".format(phs.average()),
+            style = MaterialTheme.typography.bodyMedium,
+            color = WaterColor,
+        )
+    }
+    if (logs.isEmpty()) {
+        Text("No waterings or feedings logged yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    logs.take(15).forEach { log ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Dot(if (log.kind == TaskKind.FEED) FeedColor else WaterColor)
+            Text(
+                "${formatDay(log.epochDay)} · ${if (log.kind == TaskKind.FEED) "Fed" else "Watered"}" +
+                    log.readings.takeIf { it.isNotEmpty() }?.let { " · $it" }.orEmpty(),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+    }
+    Text(
+        "$journalCount journal entr${if (journalCount == 1) "y" else "ies"}",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    OutlinedButton(onClick = onNewJournal, modifier = Modifier.fillMaxWidth()) { Text("Add journal entry for this plant") }
 }
