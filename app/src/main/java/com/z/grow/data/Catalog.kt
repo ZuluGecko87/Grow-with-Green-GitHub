@@ -49,38 +49,6 @@ object Catalog {
         "Bonnie Plants",
     )
 
-    private val strainsByBreeder = mapOf(
-        "FastBuds" to listOf(
-            "Gorilla Cookies Auto",
-            "Blackberry Auto",
-            "Six Shooter Auto",
-            "LSD-25 Auto",
-            "Wedding Cheesecake Auto",
-            "Tangie'Matic",
-            "Rhino Ryder",
-            "Mexican Airlines Auto",
-            "Pineapple Express Auto",
-            "Bruce Banner Auto",
-            "Purple Lemonade Auto",
-            "Banana Purple Punch Auto",
-            "Cream Cookies Auto",
-            "West Coast O.G. Auto",
-            "Zkittlez Auto",
-        ),
-        "Mephisto Genetics" to listOf(
-            "Double Grape",
-            "Sour Crack",
-            "Forum Cookies",
-            "3 Bears OG",
-            "Toof Decay",
-            "Creme de la Chem",
-            "Grape Crinkle",
-            "Sour Stomper",
-            "Walter White",
-            "Strawberry Nuggets",
-        ),
-    )
-
     private val varietiesByType = mapOf(
         PlantType.CANNABIS to listOf(
             "Northern Lights", "Blue Dream", "OG Kush", "Gorilla Glue #4", "Gelato", "Wedding Cake",
@@ -115,13 +83,19 @@ object Catalog {
     }
 
     /**
-     * Strain suggestions for a manufacturer. A breeder with a known lineup gets only its own
-     * strains; anyone else gets popular varieties of the plant type. Strains the user has
-     * already entered for this manufacturer ([userStrains]) are always included.
+     * Strain suggestions for a manufacturer: a breeder's own lineup when we have it, nothing for
+     * a cannabis breeder we couldn't verify (rather than other breeders' strains), and popular
+     * varieties of the plant type for Generic, garden brands or anything typed in. Strains the
+     * user already entered for this manufacturer ([userStrains]) are always included.
      */
     fun strains(type: PlantType, manufacturer: String, userStrains: List<String> = emptyList()): List<String> {
-        val own = strainsByBreeder.entries.firstOrNull { it.key.equals(manufacturer.trim(), ignoreCase = true) }?.value
-        val base = own ?: varietiesByType[type].orEmpty()
+        val name = manufacturer.trim()
+        val lineup = breederStrains.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value
+        val base = when {
+            lineup != null -> lineup.filter { it.isNotBlank() }
+            cannabisBreeders.any { it.equals(name, ignoreCase = true) } -> emptyList()
+            else -> varietiesByType[type].orEmpty()
+        }
         return (base + userStrains.map { it.trim() }.filter { it.isNotEmpty() })
             .distinctBy { it.lowercase() }
     }
