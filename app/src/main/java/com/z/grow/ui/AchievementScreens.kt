@@ -1,5 +1,10 @@
 package com.z.grow.ui
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -136,4 +141,40 @@ fun BadgeRow(earned: List<EarnedAchievement>, modifier: Modifier = Modifier) {
             confirmButton = { TextButton(onClick = { showing = null }) { Text("Nice") } },
         )
     }
+}
+
+/** Celebration pop-up shown when an achievement unlocks. */
+@Composable
+fun AchievementUnlockedDialog(unlock: GrowViewModel.Unlock, onDismiss: () -> Unit) {
+    val achievement = unlock.achievement
+    // Pop the badge in with a little bounce each time a new achievement is shown.
+    var shown by remember(achievement.id) { mutableStateOf(false) }
+    LaunchedEffect(achievement.id) { shown = true }
+    val scale by animateFloatAsState(
+        targetValue = if (shown) 1f else 0.2f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+        label = "badge",
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Badge(achievement, size = 112, modifier = Modifier.scale(scale)) },
+        title = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Text("Achievement unlocked!", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text(achievement.title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+            }
+        },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Text(achievement.description, textAlign = TextAlign.Center)
+                unlock.plant?.let {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 16.dp)) {
+                        PlantAvatar(it, size = 32)
+                        Text("Earned by ${it.displayName}", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Nice!") } },
+    )
 }

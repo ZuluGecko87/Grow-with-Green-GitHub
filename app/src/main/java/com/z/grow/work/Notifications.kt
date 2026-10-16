@@ -17,8 +17,12 @@ import com.z.grow.R
 object Notifications {
     const val REMINDERS_CHANNEL = "reminders"
     const val BACKUP_CHANNEL = "backup"
+    const val ACHIEVEMENTS_CHANNEL = "achievements"
     const val REMINDER_ID = 1
     const val BACKUP_FAILED_ID = 2
+
+    /** Each achievement gets its own notification so several can show at once. */
+    fun achievementId(key: String) = 1000 + (key.hashCode() and 0xFFFFF)
 
     fun createChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -27,6 +31,9 @@ object Notifications {
         )
         manager.createNotificationChannel(
             NotificationChannel(BACKUP_CHANNEL, "Backup", NotificationManager.IMPORTANCE_LOW),
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(ACHIEVEMENTS_CHANNEL, "Achievements", NotificationManager.IMPORTANCE_DEFAULT),
         )
     }
 

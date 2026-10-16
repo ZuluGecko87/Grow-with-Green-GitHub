@@ -23,6 +23,7 @@ import com.z.grow.data.TaskKind
 import com.z.grow.data.TaskLog
 import com.z.grow.data.data
 import com.z.grow.work.AutoBackupWorker
+import com.z.grow.work.Notifications
 import com.z.grow.work.ReminderWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -47,10 +48,13 @@ class GrowViewModel(private val app: Application) : AndroidViewModel(app) {
     private val _settings = MutableStateFlow(settingsStore.load())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
-    private val _unlocked = MutableSharedFlow<Achievement>(extraBufferCapacity = 16)
+    /** An achievement that was just unlocked, and the plant that earned it (if any). */
+    data class Unlock(val achievement: Achievement, val plant: Plant?)
+
+    private val _unlocked = MutableSharedFlow<Unlock>(extraBufferCapacity = 16)
 
     /** Fires once for each achievement as it's unlocked. */
-    val unlocked: SharedFlow<Achievement> = _unlocked.asSharedFlow()
+    val unlocked: SharedFlow<Unlock> = _unlocked.asSharedFlow()
 
     init {
         // Re-check achievements whenever anything changes; awarding is idempotent.
@@ -64,7 +68,17 @@ class GrowViewModel(private val app: Application) : AndroidViewModel(app) {
                         plantId = earned.plantId,
                         kind = EntryKind.ACHIEVEMENT,
                     )
-                    if (dao.awardAchievement(earned, entry)) _unlocked.emit(achievement)
+                    if (dao.awardAchievement(earned, entry)) {
+                        val plant = snapshot.plant(earned.plantId)
+                        _unlocked.emit(Unlock(achievement, plant))
+                        Notifications.post(
+                            app,
+                            Notifications.achievementId(earned.key),
+                            Notifications.ACHIEVEMENTS_CHANNEL,
+                            "🏆 Achievement unlocked: ${achievement.emoji} ${achievement.title}",
+                            listOfNotNull(achievement.description, plant?.let { "Earned by ${it.displayName}" }),
+                        )
+                    }
                 }
             }
         }
