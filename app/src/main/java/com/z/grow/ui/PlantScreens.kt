@@ -372,7 +372,13 @@ fun PlantEditScreen(
             SuggestField(
                 label = "Strain / variety",
                 value = f.strain,
-                suggestions = Catalog.strains(f.type, f.manufacturer),
+                suggestions = Catalog.strains(
+                    type = f.type,
+                    manufacturer = f.manufacturer,
+                    userStrains = data.plants
+                        .filter { it.id != f.id && it.manufacturer.trim().equals(f.manufacturer.trim(), ignoreCase = true) }
+                        .map { it.strain },
+                ),
                 onValueChange = { form = f.copy(strain = it) },
                 placeholder = "Pick one or type your own",
             )

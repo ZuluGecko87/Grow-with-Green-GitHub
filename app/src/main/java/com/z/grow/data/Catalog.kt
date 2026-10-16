@@ -114,9 +114,15 @@ object Catalog {
         return listOf(GENERIC) + first + second
     }
 
-    /** The breeder's own strains first (when known), then popular varieties of the plant type. */
-    fun strains(type: PlantType, manufacturer: String): List<String> {
-        val own = strainsByBreeder.entries.firstOrNull { it.key.equals(manufacturer.trim(), ignoreCase = true) }?.value.orEmpty()
-        return (own + varietiesByType[type].orEmpty()).distinct()
+    /**
+     * Strain suggestions for a manufacturer. A breeder with a known lineup gets only its own
+     * strains; anyone else gets popular varieties of the plant type. Strains the user has
+     * already entered for this manufacturer ([userStrains]) are always included.
+     */
+    fun strains(type: PlantType, manufacturer: String, userStrains: List<String> = emptyList()): List<String> {
+        val own = strainsByBreeder.entries.firstOrNull { it.key.equals(manufacturer.trim(), ignoreCase = true) }?.value
+        val base = own ?: varietiesByType[type].orEmpty()
+        return (base + userStrains.map { it.trim() }.filter { it.isNotEmpty() })
+            .distinctBy { it.lowercase() }
     }
 }
