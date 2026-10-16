@@ -6,6 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.z.grow.data.AppSettings
 import com.z.grow.data.Backup
+import com.z.grow.data.DeathReason
+import com.z.grow.data.GrowStage
 import com.z.grow.data.EntryKind
 import com.z.grow.data.GrowData
 import com.z.grow.data.GrowDatabase
@@ -92,7 +94,7 @@ class GrowViewModel(private val app: Application) : AndroidViewModel(app) {
             dao.saveJournalEntry(
                 JournalEntry(
                     epochDay = today,
-                    text = "Stage changed: ${original.stage.label} → ${plant.stage.label}",
+                    text = stageChangeText(original, plant),
                     plantId = id,
                     kind = EntryKind.STAGE_CHANGE,
                 ),
@@ -113,6 +115,15 @@ class GrowViewModel(private val app: Application) : AndroidViewModel(app) {
         val copy = copyPhoto(fileName) ?: return@launch
         dao.updatePlant(plant.copy(photoFileName = copy))
         plant.photoFileName?.let { PhotoStore.delete(app, listOf(it)) }
+    }
+
+    private fun stageChangeText(old: Plant, new: Plant): String = when (new.stage) {
+        GrowStage.DRYING -> "Started drying (target ${new.dryDays} days)"
+        GrowStage.CURING -> "Started curing (target ${new.cureWeeks} weeks)"
+        GrowStage.HARVESTED -> "Harvested and moved to the archive"
+        GrowStage.DEAD -> "Plant died: ${(new.deathReason ?: DeathReason.OTHER).label}" +
+            new.deathNotes.takeIf { it.isNotBlank() }?.let { " — $it" }.orEmpty()
+        else -> "Stage changed: ${old.stage.label} → ${new.stage.label}"
     }
 
     private suspend fun copyPhoto(fileName: String) = withContext(Dispatchers.IO) { PhotoStore.copy(app, fileName) }

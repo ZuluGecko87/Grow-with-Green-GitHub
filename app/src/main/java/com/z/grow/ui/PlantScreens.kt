@@ -39,6 +39,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.z.grow.data.DeathReason
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,35 +70,74 @@ import java.time.LocalDate
 
 @Composable
 fun PlantsScreen(data: GrowData, vm: GrowViewModel, onOpen: (Long) -> Unit) {
+    var showArchive by rememberSaveable { mutableStateOf(false) }
+    var pendingStage by remember { mutableStateOf<Pair<Plant, GrowStage>?>(null) }
+    val plants = if (showArchive) data.archivedPlants else data.activePlants
+
     Scaffold(
         topBar = { GrowTopBar("Plants") },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { onOpen(0) },
-                icon = { Icon(Icons.Filled.Add, null) },
-                text = { Text("Add plant") },
-            )
+            if (!showArchive) {
+                ExtendedFloatingActionButton(
+                    onClick = { onOpen(0) },
+                    icon = { Icon(Icons.Filled.Add, null) },
+                    text = { Text("Add plant") },
+                )
+            }
         },
         contentWindowInsets = WindowInsets(0),
     ) { padding ->
-        if (data.plants.isEmpty()) {
-            EmptyState("No plants yet.\nAdd one with its strain, genetics and schedule.", Modifier.padding(padding))
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(data.plants, key = { it.id }) { plant ->
-                    PlantCard(
-                        plant = plant,
-                        environment = data.environment(plant.environmentId),
-                        lastPh = data.logsFor(plant.id).firstNotNullOfOrNull { it.ph },
-                        onStageChange = { stage -> vm.savePlant(plant.copy(stage = stage), original = plant) },
-                    ) { onOpen(plant.id) }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = !showArchive,
+                        onClick = { showArchive = false },
+                        shape = SegmentedButtonDefaults.itemShape(0, 2),
+                    ) { Text("Active (${data.activePlants.size})") }
+                    SegmentedButton(
+                        selected = showArchive,
+                        onClick = { showArchive = true },
+                        shape = SegmentedButtonDefaults.itemShape(1, 2),
+                    ) { Text("Archive (${data.archivedPlants.size})") }
                 }
             }
+            if (plants.isEmpty()) {
+                item {
+                    EmptyState(
+                        if (showArchive) "No archived plants.\nHarvested and dead plants are kept here with their history."
+                        else "No active plants.\nAdd one with its strain, genetics and schedule.",
+                    )
+                }
+            }
+            items(plants, key = { it.id }) { plant ->
+                PlantCard(
+                    plant = plant,
+                    environment = data.environment(plant.environmentId),
+                    lastPh = data.logsFor(plant.id).firstNotNullOfOrNull { it.ph },
+                    onStageChange = { stage ->
+                        if (stage.needsDetails) pendingStage = plant to stage
+                        else vm.savePlant(plant.movedTo(stage), original = plant)
+                    },
+                ) { onOpen(plant.id) }
+            }
         }
+    }
+
+    pendingStage?.let { (plant, stage) ->
+        StageChangeDialog(
+            plant = plant,
+            target = stage,
+            onDismiss = { pendingStage = null },
+            onConfirm = {
+                vm.savePlant(it, original = plant)
+                pendingStage = null
+            },
+        )
     }
 }
 
@@ -105,40 +150,72 @@ private fun PlantCard(
     onClick: () -> Unit,
 ) {
     val today = LocalDate.now().toEpochDay()
-    val day = today - plant.startEpochDay + 1
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        PlantAvatar(plant, size = 72)
-        Column(Modifier.weight(1f).padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(plant.displayName, style = MaterialTheme.typography.titleMedium)
-            val lineage = listOf(
-                plant.strain.takeIf { it.isNotBlank() && it != plant.displayName },
-                plant.manufacturer.takeIf { it.isNotBlank() },
-            ).filterNotNull().joinToString(" · ")
-            if (lineage.isNotEmpty()) Text(lineage, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "${plant.type.label} · ${plant.genetics.label} · ${plant.source.label}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            val dayLabel = if (day >= 1) "Day $day" else "Starts ${formatDay(plant.startEpochDay)}"
-            StageButton(plant.stage, onStageChange)
-            Text(
-                "$dayLabel · ${environment?.name ?: "No environment"}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            if (plant.stage != GrowStage.HARVESTED) {
-                val nextWater = plant.nextDay(TaskKind.WATER, today)
-                val nextFeed = plant.nextDay(TaskKind.FEED, today)
-                val upcoming = listOfNotNull(
-                    nextWater?.let { "Water ${formatDay(it)}" },
-                    nextFeed?.let { "Feed ${formatDay(it)}" },
-                ).joinToString(" · ")
-                if (upcoming.isNotEmpty()) Text("Next: $upcoming", style = MaterialTheme.typography.bodySmall)
+            PlantAvatar(plant, size = 72)
+            Column(Modifier.weight(1f).padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(plant.displayName, style = MaterialTheme.typography.titleMedium)
+                val lineage = listOf(
+                    plant.strain.takeIf { it.isNotBlank() && it != plant.displayName },
+                    plant.manufacturer.takeIf { it.isNotBlank() },
+                ).filterNotNull().joinToString(" · ")
+                if (lineage.isNotEmpty()) Text(lineage, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "${plant.type.label} · ${plant.genetics.label} · ${plant.source.label}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                StageButton(plant.stage, onStageChange)
+                StageStatus(plant, environment, today)
+                lastPh?.let { Text("Last pH %.1f".format(it), style = MaterialTheme.typography.bodySmall, color = WaterColor) }
             }
-            lastPh?.let { Text("Last pH %.1f".format(it), style = MaterialTheme.typography.bodySmall, color = WaterColor) }
         }
+    }
+}
+
+/** Stage-specific progress: grow day and next tasks, drying/curing countdown, or archive details. */
+@Composable
+private fun StageStatus(plant: Plant, environment: GrowEnvironment?, today: Long) {
+    val small = MaterialTheme.typography.bodySmall
+    val accent = MaterialTheme.colorScheme.primary
+    when (plant.stage) {
+        GrowStage.DRYING, GrowStage.CURING -> {
+            val done = plant.stageDoneDay ?: today
+            val total = (done - plant.stageStart).coerceAtLeast(1)
+            val elapsed = (today - plant.stageStart).coerceIn(0, total)
+            val progress = when (plant.stage) {
+                GrowStage.DRYING -> "Drying day ${elapsed + 1} of ${plant.dryDays}"
+                else -> "Curing week ${elapsed / 7 + 1} of ${plant.cureWeeks}"
+            }
+            Text(
+                if (today >= done) "${plant.stage.label} complete — ready for the next step" else "$progress · done ${formatDay(done)}",
+                style = small,
+                color = if (today >= done) MilestoneColor else accent,
+            )
+            LinearProgressIndicator(
+                progress = { elapsed.toFloat() / total },
+                color = MilestoneColor,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            )
+        }
+        GrowStage.HARVESTED -> Text("Harvested ${formatDay(plant.stageStart)}", style = small, color = accent)
+        GrowStage.DEAD -> {
+            Text(
+                "Died ${formatDay(plant.stageStart)} · ${(plant.deathReason ?: DeathReason.OTHER).label}",
+                style = small,
+                color = MaterialTheme.colorScheme.error,
+            )
+            if (plant.deathNotes.isNotBlank()) Text(plant.deathNotes, style = small)
+        }
+        else -> {
+            val day = today - plant.startEpochDay + 1
+            val dayLabel = if (day >= 1) "Day $day" else "Starts ${formatDay(plant.startEpochDay)}"
+            Text("$dayLabel · ${environment?.name ?: "No environment"}", style = small, color = accent)
+            val upcoming = listOfNotNull(
+                plant.nextDay(TaskKind.WATER, today)?.let { "Water ${formatDay(it)}" },
+                plant.nextDay(TaskKind.FEED, today)?.let { "Feed ${formatDay(it)}" },
+            ).joinToString(" · ")
+            if (upcoming.isNotEmpty()) Text("Next: $upcoming", style = small)
         }
     }
 }
@@ -157,6 +234,7 @@ fun PlantEditScreen(
     var original by remember { mutableStateOf<Plant?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var editingLog by remember { mutableStateOf<TaskLog?>(null) }
+    var stageDialog by remember { mutableStateOf<GrowStage?>(null) }
     LaunchedEffect(id) {
         if (id != 0L) {
             val loaded = vm.plant(id) ?: Plant()
@@ -256,7 +334,17 @@ fun PlantEditScreen(
                 selected = data.environment(f.environmentId),
                 optionLabel = { it?.let { env -> "${env.name} (${env.type.label})" } ?: "None" },
             ) { form = f.copy(environmentId = it?.id) }
-            DropdownField("Stage", GrowStage.entries, f.stage, { it.label }) { form = f.copy(stage = it) }
+            DropdownField("Stage", GrowStage.entries, f.stage, { it.label }) { stage ->
+                when {
+                    stage == f.stage -> Unit
+                    stage.needsDetails -> stageDialog = stage
+                    else -> form = f.movedTo(stage)
+                }
+            }
+            if (!f.stage.isGrowing) {
+                DateField("${f.stage.label} since", f.stageStart) { form = f.copy(stageStartEpochDay = it) }
+                StageDetailsFields(f) { form = it }
+            }
             DateField("Start date", f.startEpochDay) { form = f.copy(startEpochDay = it) }
 
             SectionTitle("Schedule")
@@ -300,6 +388,20 @@ fun PlantEditScreen(
     }
 
     editingLog?.let { LogEditDialog(it, data, vm) { editingLog = null } }
+
+    val current = form
+    val target = stageDialog
+    if (current != null && target != null) {
+        StageChangeDialog(
+            plant = current,
+            target = target,
+            onDismiss = { stageDialog = null },
+            onConfirm = {
+                form = it
+                stageDialog = null
+            },
+        )
+    }
 
     if (confirmDelete) {
         ConfirmDeleteDialog(

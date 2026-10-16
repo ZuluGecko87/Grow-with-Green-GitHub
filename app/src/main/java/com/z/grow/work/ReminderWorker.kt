@@ -33,7 +33,7 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
             "${task.kind.label} ${task.plant.displayName}" + if (mix.isNotEmpty()) " — $mix" else ""
         } + agenda.lights.filter { it.isFlipDay }.map {
             "Switch ${it.environment.name} lights to ${cycleLabel(it.hoursOn)}"
-        }
+        } + agenda.milestones.filter { it.plant.remindersEnabled }.map { it.text }
 
         if (lines.isNotEmpty()) {
             val water = due.count { it.kind == TaskKind.WATER }
@@ -41,7 +41,7 @@ class ReminderWorker(context: Context, params: WorkerParameters) : CoroutineWork
             val title = listOfNotNull(
                 water.takeIf { it > 0 }?.let { "$it to water" },
                 feed.takeIf { it > 0 }?.let { "$it to feed" },
-            ).joinToString(", ").ifEmpty { "Light change today" }
+            ).joinToString(", ").ifEmpty { if (agenda.hasMilestone) "Harvest update" else "Light change today" }
             Notifications.post(applicationContext, Notifications.REMINDER_ID, Notifications.REMINDERS_CHANNEL, "Today: $title", lines)
         }
         store.lastReminderDay = today.toEpochDay()

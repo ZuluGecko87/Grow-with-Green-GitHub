@@ -4,7 +4,7 @@ import java.time.LocalDate
 
 /** What a plant needs on [day], or null. Feeding replaces watering on days both fall due. */
 fun Plant.taskOn(day: Long): TaskKind? {
-    if (stage == GrowStage.HARVESTED || day < startEpochDay) return null
+    if (!stage.isGrowing || day < startEpochDay) return null
     val offset = day - startEpochDay
     if (feedEveryDays > 0 && offset % feedEveryDays == 0L) return TaskKind.FEED
     if (waterEveryDays > 0 && offset % waterEveryDays == 0L) return TaskKind.WATER
@@ -33,6 +33,15 @@ data class PlantTask(
     val done: Boolean get() = log != null
 }
 
+/** Drying or curing finishing on a given day. */
+data class Milestone(val plant: Plant) {
+    val text: String
+        get() = when (plant.stage) {
+            GrowStage.DRYING -> "${plant.displayName} is done drying (${plant.dryDays} days)"
+            else -> "${plant.displayName} has finished curing (${plant.cureWeeks} weeks)"
+        }
+}
+
 data class LightStatus(val environment: GrowEnvironment, val hoursOn: Int, val isFlipDay: Boolean) {
     val lightsOffMinute: Int get() = (environment.lightsOnMinute + hoursOn * 60) % (24 * 60)
 }
@@ -42,7 +51,9 @@ data class DayAgenda(
     val tasks: List<PlantTask>,
     val lights: List<LightStatus>,
     val journal: List<JournalEntry>,
+    val milestones: List<Milestone>,
 ) {
+    val hasMilestone get() = milestones.isNotEmpty()
     val hasWater get() = tasks.any { it.kind == TaskKind.WATER }
     val hasFeed get() = tasks.any { it.kind == TaskKind.FEED }
     val hasFlip get() = lights.any { it.isFlipDay }
@@ -89,7 +100,10 @@ class GrowData(
     fun nutrientsFor(environmentId: Long?): List<Nutrient> =
         environmentId?.let { nutrientsByEnvironment[it] }.orEmpty()
 
-    fun plantsIn(environmentId: Long): List<Plant> = plants.filter { it.environmentId == environmentId }
+    val activePlants: List<Plant> = plants.filter { !it.stage.isArchived }
+    val archivedPlants: List<Plant> = plants.filter { it.stage.isArchived }
+
+    fun plantsIn(environmentId: Long): List<Plant> = activePlants.filter { it.environmentId == environmentId }
 
     fun photosFor(entryId: Long): List<JournalPhoto> = photosByEntry[entryId].orEmpty()
 
@@ -119,7 +133,8 @@ class GrowData(
         val lights = environments.filter { it.hasLightSchedule }.map {
             LightStatus(it, it.lightHoursOn(day), it.flipEpochDay == day)
         }
-        return DayAgenda(date, scheduled + extra, lights, journalByDay[day].orEmpty())
+        val milestones = plants.filter { it.stageDoneDay == day }.map(::Milestone)
+        return DayAgenda(date, scheduled + extra, lights, journalByDay[day].orEmpty(), milestones)
     }
 
     private fun task(plant: Plant, kind: TaskKind, scheduled: Boolean, log: TaskLog?) = PlantTask(

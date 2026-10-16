@@ -57,12 +57,32 @@ enum class PlantSource(val label: String) {
     START("Nursery start"),
 }
 
-enum class GrowStage(val label: String) {
+enum class GrowStage(val label: String, val isGrowing: Boolean = true, val isArchived: Boolean = false) {
     GERMINATION("Germination"),
     SEEDLING("Seedling"),
     VEGETATIVE("Vegetative"),
     FLOWERING("Flowering"),
-    HARVESTED("Harvested"),
+    DRYING("Drying", isGrowing = false),
+    CURING("Curing", isGrowing = false),
+    HARVESTED("Harvested", isGrowing = false, isArchived = true),
+    DEAD("Dead", isGrowing = false, isArchived = true),
+}
+
+enum class DeathReason(val label: String) {
+    OVERWATERING("Overwatering"),
+    UNDERWATERING("Underwatering"),
+    NUTRIENT_BURN("Nutrient burn"),
+    NUTRIENT_DEFICIENCY("Nutrient deficiency"),
+    PH_IMBALANCE("pH imbalance"),
+    TEMPERATURE("Temperature (too hot/cold)"),
+    HUMIDITY("Humidity"),
+    LIGHT_STRESS("Light burn / light stress"),
+    PESTS("Pest infestation"),
+    DISEASE("Disease, mold or root rot"),
+    DAMPING_OFF("Damping off (seedling)"),
+    PHYSICAL_DAMAGE("Physical damage"),
+    CULLED("Culled (male / hermaphrodite)"),
+    OTHER("Other"),
 }
 
 /** Journal entries are notes the user writes, or history the app records automatically. */
@@ -152,8 +172,24 @@ data class Plant(
     @ColumnInfo(defaultValue = "1") val remindersEnabled: Boolean = true,
     /** Profile photo in the photos folder, or null. */
     val photoFileName: String? = null,
+    /** Day the current stage began; null for plants saved before stages were dated. */
+    val stageStartEpochDay: Long? = null,
+    @ColumnInfo(defaultValue = "10") val dryDays: Int = 10,
+    @ColumnInfo(defaultValue = "4") val cureWeeks: Int = 4,
+    val deathReason: DeathReason? = null,
+    @ColumnInfo(defaultValue = "") val deathNotes: String = "",
 ) {
     val displayName: String get() = name.ifBlank { strain.ifBlank { "Unnamed plant" } }
+
+    val stageStart: Long get() = stageStartEpochDay ?: startEpochDay
+
+    /** Day drying or curing is due to finish, or null in other stages. */
+    val stageDoneDay: Long?
+        get() = when (stage) {
+            GrowStage.DRYING -> stageStart + dryDays
+            GrowStage.CURING -> stageStart + cureWeeks * 7L
+            else -> null
+        }
 }
 
 /** A watering or feeding that was done, with optional readings. */

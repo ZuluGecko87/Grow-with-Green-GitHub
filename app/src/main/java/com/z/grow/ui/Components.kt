@@ -52,6 +52,7 @@ val WaterColor = Color(0xFF1E88E5)
 val FeedColor = Color(0xFF43A047)
 val LightColor = Color(0xFFFFA000)
 val NoteColor = Color(0xFF8D6E63)
+val MilestoneColor = Color(0xFFAB47BC)
 
 private const val MILLIS_PER_DAY = 86_400_000L
 val ShortDate: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, MMM d")
@@ -236,23 +237,32 @@ fun TimeField(label: String, minuteOfDay: Int, onChange: (Int) -> Unit) {
 /** Picks a whole number of days; 0 reads as "Off". */
 @Composable
 fun DayStepper(label: String, value: Int, onChange: (Int) -> Unit, max: Int = 30) {
+    NumberStepper(
+        label = label,
+        value = value,
+        range = 0..max,
+        valueText = {
+            when (it) {
+                0 -> "Off"
+                1 -> "Every day"
+                else -> "Every $it days"
+            }
+        },
+        onChange = onChange,
+    )
+}
+
+@Composable
+fun NumberStepper(label: String, value: Int, range: IntRange, valueText: (Int) -> String, onChange: (Int) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                when (value) {
-                    0 -> "Off"
-                    1 -> "Every day"
-                    else -> "Every $value days"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            Text(valueText(value), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            FilledTonalIconButton(onClick = { onChange((value - 1).coerceAtLeast(0)) }) { Text("−") }
+            FilledTonalIconButton(onClick = { onChange((value - 1).coerceIn(range)) }) { Text("−") }
             Text("$value", style = MaterialTheme.typography.titleMedium)
-            FilledTonalIconButton(onClick = { onChange((value + 1).coerceAtMost(max)) }) { Text("+") }
+            FilledTonalIconButton(onClick = { onChange((value + 1).coerceIn(range)) }) { Text("+") }
         }
     }
 }

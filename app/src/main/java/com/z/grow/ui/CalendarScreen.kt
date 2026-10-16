@@ -47,7 +47,10 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.z.grow.data.DayAgenda
 import com.z.grow.data.GrowData
+import com.z.grow.data.GrowStage
 import com.z.grow.data.LightStatus
+import com.z.grow.data.Milestone
+import com.z.grow.data.Plant
 import com.z.grow.data.PlantTask
 import com.z.grow.data.TaskKind
 import java.time.LocalDate
@@ -70,6 +73,7 @@ fun CalendarScreen(
     var month by rememberSaveable { mutableStateOf(YearMonth.now()) }
     var selected by rememberSaveable { mutableStateOf(LocalDate.now()) }
     var logging by remember { mutableStateOf<LogRequest?>(null) }
+    var nextStage by remember { mutableStateOf<Pair<Plant, GrowStage>?>(null) }
     val agenda = data.agenda(selected)
 
     Scaffold(
@@ -118,6 +122,9 @@ fun CalendarScreen(
                     onClick = { logging = LogRequest(task.plant, task.kind, task.log) },
                 )
             }
+            items(agenda.milestones, key = { "milestone-${it.plant.id}" }) { milestone ->
+                MilestoneCard(milestone) { stage -> nextStage = milestone.plant to stage }
+            }
             items(agenda.lights, key = { "light-${it.environment.id}" }) { LightCard(it) }
             items(agenda.journal, key = { "journal-${it.id}" }) { entry ->
                 JournalEntryCard(entry, data) { onOpenJournal(entry.id) }
@@ -126,7 +133,7 @@ fun CalendarScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = { logging = LogRequest(null, TaskKind.WATER, null) },
-                        enabled = data.plants.isNotEmpty(),
+                        enabled = data.activePlants.isNotEmpty(),
                         modifier = Modifier.weight(1f),
                     ) { Text("Log watering") }
                     OutlinedButton(onClick = { onNewJournal(selected.toEpochDay()) }, modifier = Modifier.weight(1f)) {
@@ -137,10 +144,22 @@ fun CalendarScreen(
         }
     }
 
+    nextStage?.let { (plant, stage) ->
+        StageChangeDialog(
+            plant = plant,
+            target = stage,
+            onDismiss = { nextStage = null },
+            onConfirm = {
+                vm.savePlant(it, original = plant)
+                nextStage = null
+            },
+        )
+    }
+
     logging?.let { request ->
         LogTaskDialog(
             request = request,
-            plants = data.plants,
+            plants = data.activePlants.filter { it.stage.isGrowing },
             onDismiss = { logging = null },
             onSave = { plantId, kind, ph, ppm, amount ->
                 vm.logTask(plantId, selected, kind, ph, ppm, amount)
@@ -264,6 +283,7 @@ private fun DayCell(
             if (agenda.hasFeed) Dot(FeedColor)
             if (agenda.hasFlip) Dot(LightColor)
             if (agenda.hasJournal) Dot(NoteColor)
+            if (agenda.hasMilestone) Dot(MilestoneColor)
         }
     }
 }
@@ -271,7 +291,7 @@ private fun DayCell(
 @Composable
 private fun Legend() {
     Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-        listOf(WaterColor to "Water", FeedColor to "Feed", LightColor to "Lights", NoteColor to "Journal").forEach { (color, label) ->
+        listOf(WaterColor to "Water", FeedColor to "Feed", LightColor to "Lights", NoteColor to "Journal", MilestoneColor to "Harvest").forEach { (color, label) ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Dot(color)
                 Spacer(Modifier.width(4.dp))
@@ -312,6 +332,28 @@ private fun TaskCard(task: PlantTask, onCheckedChange: (Boolean) -> Unit, onClic
                 }
             }
             Box(Modifier.padding(top = 18.dp)) { Dot(accent) }
+        }
+    }
+}
+
+@Composable
+private fun MilestoneCard(milestone: Milestone, onNextStage: (GrowStage) -> Unit) {
+    val plant = milestone.plant
+    val next = if (plant.stage == GrowStage.DRYING) GrowStage.CURING else GrowStage.HARVESTED
+    Card(Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            PlantAvatar(plant, size = 40)
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(milestone.text, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (next == GrowStage.CURING) "Jar it up and start the cure." else "Ready to call it harvested.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MilestoneColor,
+                )
+            }
+            Button(onClick = { onNextStage(next) }) {
+                Text(if (next == GrowStage.CURING) "Start cure" else "Harvest")
+            }
         }
     }
 }

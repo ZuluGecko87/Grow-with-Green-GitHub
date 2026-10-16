@@ -17,7 +17,7 @@ import androidx.room.RoomDatabase
     ],
     version = GrowDatabase.VERSION,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
 )
 abstract class GrowDatabase : RoomDatabase() {
     abstract fun dao(): GrowDao
@@ -28,7 +28,7 @@ abstract class GrowDatabase : RoomDatabase() {
     }
 
     companion object {
-        const val VERSION = 3
+        const val VERSION = 4
         const val NAME = "grow.db"
 
         @Volatile private var instance: GrowDatabase? = null
