@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -32,6 +33,9 @@ private enum class Tab(val route: String, val label: String) {
     JOURNAL("journal", "Journal"),
     ENVIRONMENTS("environments", "Spaces"),
 }
+
+/** Opens a screen; a double tap won't stack a second copy of it. */
+private fun NavController.open(route: String) = navigate(route) { launchSingleTop = true }
 
 @Composable
 fun GrowApp(vm: GrowViewModel = viewModel()) {
@@ -74,21 +78,21 @@ fun GrowApp(vm: GrowViewModel = viewModel()) {
                 CalendarScreen(
                     data = data,
                     vm = vm,
-                    onAddEnvironment = { nav.navigate("environment/0") },
-                    onAddPlant = { nav.navigate("plant/0") },
-                    onOpenJournal = { nav.navigate("journal/$it") },
-                    onNewJournal = { day -> nav.navigate("journal/0?day=$day") },
-                    onSettings = { nav.navigate("settings") },
+                    onAddEnvironment = { nav.open("environment/0") },
+                    onAddPlant = { nav.open("plant/0") },
+                    onOpenJournal = { nav.open("journal/$it") },
+                    onNewJournal = { day -> nav.open("journal/0?day=$day") },
+                    onSettings = { nav.open("settings") },
                 )
             }
             composable(Tab.PLANTS.route) {
-                PlantsScreen(data, onOpen = { nav.navigate("plant/$it") })
+                PlantsScreen(data, vm, onOpen = { nav.open("plant/$it") })
             }
             composable(Tab.JOURNAL.route) {
-                JournalScreen(data, vm, onOpen = { nav.navigate("journal/$it") }, onNew = { nav.navigate("journal/0") })
+                JournalScreen(data, vm, onOpen = { nav.open("journal/$it") }, onNew = { nav.open("journal/0") })
             }
             composable(Tab.ENVIRONMENTS.route) {
-                EnvironmentsScreen(data, onOpen = { nav.navigate("environment/$it") })
+                EnvironmentsScreen(data, onOpen = { nav.open("environment/$it") })
             }
             composable("plant/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                 val id = it.arguments?.getLong("id") ?: 0L
@@ -97,8 +101,8 @@ fun GrowApp(vm: GrowViewModel = viewModel()) {
                     data = data,
                     vm = vm,
                     onDone = { nav.popBackStack() },
-                    onNewJournal = { nav.navigate("journal/0?plant=$id") },
-                    onOpenJournal = { entryId -> nav.navigate("journal/$entryId") },
+                    onNewJournal = { nav.open("journal/0?plant=$id") },
+                    onOpenJournal = { entryId -> nav.open("journal/$entryId") },
                 )
             }
             composable("environment/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {

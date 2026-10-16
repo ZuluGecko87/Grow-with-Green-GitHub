@@ -19,10 +19,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,7 +63,7 @@ import com.z.grow.data.nextDay
 import java.time.LocalDate
 
 @Composable
-fun PlantsScreen(data: GrowData, onOpen: (Long) -> Unit) {
+fun PlantsScreen(data: GrowData, vm: GrowViewModel, onOpen: (Long) -> Unit) {
     Scaffold(
         topBar = { GrowTopBar("Plants") },
         floatingActionButton = {
@@ -82,6 +88,7 @@ fun PlantsScreen(data: GrowData, onOpen: (Long) -> Unit) {
                         plant = plant,
                         environment = data.environment(plant.environmentId),
                         lastPh = data.logsFor(plant.id).firstNotNullOfOrNull { it.ph },
+                        onStageChange = { stage -> vm.savePlant(plant.copy(stage = stage), original = plant) },
                     ) { onOpen(plant.id) }
                 }
             }
@@ -90,7 +97,13 @@ fun PlantsScreen(data: GrowData, onOpen: (Long) -> Unit) {
 }
 
 @Composable
-private fun PlantCard(plant: Plant, environment: GrowEnvironment?, lastPh: Double?, onClick: () -> Unit) {
+private fun PlantCard(
+    plant: Plant,
+    environment: GrowEnvironment?,
+    lastPh: Double?,
+    onStageChange: (GrowStage) -> Unit,
+    onClick: () -> Unit,
+) {
     val today = LocalDate.now().toEpochDay()
     val day = today - plant.startEpochDay + 1
     Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
@@ -109,8 +122,9 @@ private fun PlantCard(plant: Plant, environment: GrowEnvironment?, lastPh: Doubl
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             val dayLabel = if (day >= 1) "Day $day" else "Starts ${formatDay(plant.startEpochDay)}"
+            StageButton(plant.stage, onStageChange)
             Text(
-                "${plant.stage.label} · $dayLabel · ${environment?.name ?: "No environment"}",
+                "$dayLabel · ${environment?.name ?: "No environment"}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -329,5 +343,35 @@ private fun PlantHistory(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/** Shows the current stage; tapping it picks a new one without opening the editor. */
+@Composable
+private fun StageButton(stage: GrowStage, onChange: (GrowStage) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        AssistChip(
+            onClick = { open = true },
+            label = { Text(stage.label) },
+            trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = "Change stage") },
+            colors = AssistChipDefaults.assistChipColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                trailingIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ),
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            GrowStage.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    leadingIcon = if (option == stage) ({ Icon(Icons.Filled.Check, contentDescription = null) }) else null,
+                    onClick = {
+                        open = false
+                        if (option != stage) onChange(option)
+                    },
+                )
+            }
+        }
     }
 }
